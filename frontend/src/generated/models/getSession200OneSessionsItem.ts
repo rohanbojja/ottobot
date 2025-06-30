@@ -6,13 +6,13 @@
  *  * OpenAPI spec version: 0.1.0
  *  *\/
  */
-import type { GetSessionById200OneStatus } from "./getSessionById200OneStatus";
+import type { GetSession200OneSessionsItemStatus } from "./getSession200OneSessionsItemStatus";
 
-export type GetSessionById200One = {
+export type GetSession200OneSessionsItem = {
   /** Unique session identifier */
   session_id: string;
   /** Current status of the session */
-  status: GetSessionById200OneStatus;
+  status: GetSession200OneSessionsItemStatus;
   /** URL to access the VNC session */
   vnc_url: string;
   /** WebSocket URL for chat communication */

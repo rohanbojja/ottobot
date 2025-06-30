@@ -72,3 +72,7 @@ export function createDeleteSessionMutation() {
     },
   });
 }
+
+// Export direct API functions for use in components
+export { sessionApi } from './api';
+export const getSessionById = (id: string) => sessionApi.getSession(id);

@@ -20,16 +20,21 @@ import type {
 } from "@tanstack/svelte-query";
 
 import type {
+  DeleteSessionById202One,
+  DeleteSessionById202Three,
   GetHealth200One,
   GetHealth200Three,
   GetHealthMetrics200One,
   GetHealthMetrics200Three,
+  GetSession200One,
+  GetSession200Three,
   GetSessionById200One,
   GetSessionById200Three,
   GetSessionByIdLogs200One,
   GetSessionByIdLogs200Three,
-  PostSession200One,
-  PostSession200Three,
+  GetSessionParams,
+  PostSession201One,
+  PostSession201Three,
   PostSessionBodyOne,
   PostSessionBodyThree,
   PostSessionBodyTwo,
@@ -200,6 +205,89 @@ export function createGetHealthMetrics<
 }
 
 /**
+ * Returns a paginated list of active sessions
+ * @summary List active sessions
+ */
+export const getSession = (params?: GetSessionParams, signal?: AbortSignal) => {
+  return customInstance<GetSession200One | Blob | GetSession200Three>({
+    url: `/session/`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetSessionQueryKey = (params?: GetSessionParams) => {
+  return [`/session/`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetSessionQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSession>>,
+  TError = unknown,
+>(
+  params?: GetSessionParams,
+  options?: {
+    query?: Partial<
+      CreateQueryOptions<Awaited<ReturnType<typeof getSession>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSessionQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSession>>> = ({
+    signal,
+  }) => getSession(params, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    staleTime: 10000,
+    ...queryOptions,
+  } as CreateQueryOptions<
+    Awaited<ReturnType<typeof getSession>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetSessionQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSession>>
+>;
+export type GetSessionQueryError = unknown;
+
+/**
+ * @summary List active sessions
+ */
+
+export function createGetSession<
+  TData = Awaited<ReturnType<typeof getSession>>,
+  TError = unknown,
+>(
+  params?: GetSessionParams,
+  options?: {
+    query?: Partial<
+      CreateQueryOptions<Awaited<ReturnType<typeof getSession>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): CreateQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getGetSessionQueryOptions(params, options);
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+/**
  * Creates a new interactive coding session with AI agent and VNC access
  * @summary Create a new coding session
  */
@@ -210,7 +298,7 @@ export const postSession = (
     | PostSessionBodyThree,
   signal?: AbortSignal,
 ) => {
-  return customInstance<PostSession200One | Blob | PostSession200Three>({
+  return customInstance<PostSession201One | Blob | PostSession201Three>({
     url: `/session/`,
     method: "POST",
     data: postSessionBody,
@@ -384,7 +472,9 @@ export function createGetSessionById<
  * @summary Terminate session
  */
 export const deleteSessionById = (id: string) => {
-  return customInstance<void>({ url: `/session/${id}`, method: "DELETE" });
+  return customInstance<
+    DeleteSessionById202One | Blob | DeleteSessionById202Three
+  >({ url: `/session/${id}`, method: "DELETE" });
 };
 
 export const getDeleteSessionByIdMutationOptions = <

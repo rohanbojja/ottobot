@@ -11,6 +11,7 @@ import type { GetSessionById200TwoStatus } from "./getSessionById200TwoStatus";
 export type GetSessionById200Two = {
   /** Unique session identifier */
   session_id: string;
+  /** Current status of the session */
   status: GetSessionById200TwoStatus;
   /** URL to access the VNC session */
   vnc_url: string;

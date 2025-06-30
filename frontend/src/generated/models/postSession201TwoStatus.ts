@@ -10,11 +10,11 @@
 /**
  * Current status of the session
  */
-export type GetSessionById200ThreeStatus =
-  (typeof GetSessionById200ThreeStatus)[keyof typeof GetSessionById200ThreeStatus];
+export type PostSession201TwoStatus =
+  (typeof PostSession201TwoStatus)[keyof typeof PostSession201TwoStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const GetSessionById200ThreeStatus = {
+export const PostSession201TwoStatus = {
   initializing: "initializing",
   ready: "ready",
   running: "running",

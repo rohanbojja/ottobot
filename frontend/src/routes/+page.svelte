@@ -3,50 +3,58 @@
   import * as Button from "$lib/components/ui/button/index.js";
   import * as Card from "$lib/components/ui/card/index.js";
   import { getSessionStatusColor } from "$lib/utils.js";
-  import { createHealthQuery, createMetricsQuery, createSessionMutation } from "$lib/api/queries.js";
+  import { createHealthQuery, createMetricsQuery, createSessionMutation, sessionApi } from "$lib/api/queries.js";
+  import { createQuery } from "@tanstack/svelte-query";
 
   // Use real API queries
   const healthQuery = createHealthQuery();
   const metricsQuery = createMetricsQuery();
   const sessionMutation = createSessionMutation();
+  const sessionsQuery = createQuery({
+    queryKey: ['sessions'],
+    queryFn: () => sessionApi.listSessions({ limit: 10 }),
+    refetchInterval: 10000, // Refresh every 10 seconds
+  });
 
   let isCreating = $state(false);
 
+  let createPrompt = $state('');
+  let showCreateDialog = $state(false);
+  
   async function createSession() {
+    if (!createPrompt.trim()) {
+      createPrompt = "Help me build a web application";
+    }
+    
     isCreating = true;
     try {
       await $sessionMutation.mutateAsync({
-        initial_prompt: "Create a new coding session",
+        initial_prompt: createPrompt.trim(),
         environment: "node",
       });
     } catch (error) {
       console.error("Failed to create session:", error);
     } finally {
       isCreating = false;
+      showCreateDialog = false;
+      createPrompt = '';
     }
   }
 
   function openSession(sessionId: string) {
     window.location.href = `/session/${sessionId}`;
   }
-
-  // Mock data for sessions since we don't have a list endpoint yet
-  let mockSessions = $state([
-    {
-      id: "session-1",
-      status: "running",
-      initial_prompt: "Build a React todo app with TypeScript",
-      created_at: new Date(Date.now() - 300000).toISOString(), // 5 minutes ago
-      environment: "node",
-    },
-    {
-      id: "session-2",
-      status: "ready",
-      initial_prompt: "Create a Python FastAPI backend",
-      created_at: new Date(Date.now() - 600000).toISOString(), // 10 minutes ago
-      environment: "python",
-    },
-  ]);
+  
+  // Refresh session list after creating a new session
+  $effect(() => {
+    if ($sessionMutation.isSuccess) {
+      $sessionsQuery.refetch();
+      // Navigate to the new session
+      if ($sessionMutation.data?.session_id) {
+        openSession($sessionMutation.data.session_id);
+      }
+    }
+  });
 </script>
 
 <svelte:head>
@@ -62,9 +70,9 @@
         Manage your coding sessions and watch AI agents work in real-time
       </p>
     </div>
-    <Button.Button onclick={createSession} disabled={isCreating}>
+    <Button.Button onclick={() => showCreateDialog = true}>
       <Plus class="mr-2 h-4 w-4" />
-      {isCreating ? "Creating..." : "New Session"}
+      New Session
     </Button.Button>
   </div>
 
@@ -148,7 +156,24 @@
   <div class="space-y-4">
     <h2 class="text-xl font-semibold tracking-tight">Recent Sessions</h2>
 
-    {#if mockSessions.length === 0}
+    {#if $sessionsQuery.isLoading}
+      <Card.Card>
+        <Card.CardContent class="p-12 text-center">
+          <Monitor class="mx-auto h-12 w-12 text-muted-foreground animate-pulse" />
+          <h3 class="mt-4 text-lg font-semibold">Loading sessions...</h3>
+        </Card.CardContent>
+      </Card.Card>
+    {:else if $sessionsQuery.error}
+      <Card.Card>
+        <Card.CardContent class="p-12 text-center">
+          <Monitor class="mx-auto h-12 w-12 text-muted-foreground" />
+          <h3 class="mt-4 text-lg font-semibold">Error loading sessions</h3>
+          <p class="mt-2 text-sm text-muted-foreground">
+            {$sessionsQuery.error.message}
+          </p>
+        </Card.CardContent>
+      </Card.Card>
+    {:else if !$sessionsQuery.data?.sessions || $sessionsQuery.data.sessions.length === 0}
       <Card.Card>
         <Card.CardContent class="p-12 text-center">
           <Monitor class="mx-auto h-12 w-12 text-muted-foreground" />
@@ -156,7 +181,7 @@
           <p class="mt-2 text-sm text-muted-foreground">
             Create your first coding session to get started
           </p>
-          <Button.Button class="mt-4" onclick={createSession}>
+          <Button.Button class="mt-4" onclick={() => showCreateDialog = true}>
             <Plus class="mr-2 h-4 w-4" />
             Create Session
           </Button.Button>
@@ -164,19 +189,16 @@
       </Card.Card>
     {:else}
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {#each mockSessions as session}
-          <Card.Card class="cursor-pointer hover:shadow-md transition-shadow" onclick={() => openSession(session.id)}>
+        {#each $sessionsQuery.data.sessions as session}
+          <Card.Card class="cursor-pointer hover:shadow-md transition-shadow" onclick={() => openSession(session.session_id)}>
             <Card.CardHeader>
               <div class="flex items-center gap-2 mb-2">
                 <div class="h-2 w-2 rounded-full {getSessionStatusColor(session.status)}"></div>
                 <span class="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
                   {session.status}
                 </span>
-                <span class="inline-flex items-center rounded-md bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">
-                  {session.environment}
-                </span>
               </div>
-              <Card.CardTitle class="text-base truncate">{session.initial_prompt}</Card.CardTitle>
+              <Card.CardTitle class="text-base truncate">{session.initial_prompt || 'Coding Session'}</Card.CardTitle>
               <Card.CardDescription>
                 Created {new Date(session.created_at).toLocaleString()}
               </Card.CardDescription>
@@ -198,3 +220,48 @@
     {/if}
   </div>
 </div>
+
+<!-- Create Session Dialog -->
+{#if showCreateDialog}
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onclick={(e) => {
+    if (e.target === e.currentTarget) showCreateDialog = false;
+  }}>
+    <Card.Card class="w-full max-w-md">
+      <Card.CardHeader>
+        <Card.CardTitle>Create New Session</Card.CardTitle>
+        <Card.CardDescription>
+          Tell the AI what you want to build
+        </Card.CardDescription>
+      </Card.CardHeader>
+      <Card.CardContent>
+        <div class="space-y-4">
+          <div>
+            <label for="prompt" class="text-sm font-medium">Initial Prompt</label>
+            <textarea
+              id="prompt"
+              bind:value={createPrompt}
+              placeholder="e.g., Help me build a React todo app with TypeScript and Tailwind CSS"
+              class="mt-1 w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              onkeydown={(e) => {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                  createSession();
+                }
+              }}
+            />
+            <p class="mt-1 text-xs text-muted-foreground">
+              Press Ctrl+Enter to create
+            </p>
+          </div>
+        </div>
+      </Card.CardContent>
+      <Card.CardFooter class="flex gap-2">
+        <Button.Button variant="outline" onclick={() => showCreateDialog = false}>
+          Cancel
+        </Button.Button>
+        <Button.Button onclick={createSession} disabled={isCreating}>
+          {isCreating ? "Creating..." : "Create Session"}
+        </Button.Button>
+      </Card.CardFooter>
+    </Card.Card>
+  </div>
+{/if}

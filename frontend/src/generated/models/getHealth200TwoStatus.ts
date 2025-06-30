@@ -7,4 +7,15 @@
  *  *\/
  */
 
-export type GetHealth200TwoStatus = "healthy" | "degraded" | "unhealthy";
+/**
+ * Overall system health status
+ */
+export type GetHealth200TwoStatus =
+  (typeof GetHealth200TwoStatus)[keyof typeof GetHealth200TwoStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const GetHealth200TwoStatus = {
+  healthy: "healthy",
+  degraded: "degraded",
+  unhealthy: "unhealthy",
+} as const;

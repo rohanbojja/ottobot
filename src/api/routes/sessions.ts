@@ -14,6 +14,66 @@ import type { CreateSessionRequest, SessionResponse } from '@/shared/types';
 const logger = createLogger('session-routes');
 
 export const sessionRoutes = new Elysia({ prefix: '/session' })
+  .get('/', async ({ query, set }) => {
+    try {
+      const limit = query?.limit ? parseInt(query.limit as string, 10) : 20;
+      const offset = query?.offset ? parseInt(query.offset as string, 10) : 0;
+      
+      // Get active sessions
+      const sessions = await SessionManager.getActiveSessions();
+      
+      // Sort by creation date (newest first)
+      sessions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      
+      // Apply pagination
+      const paginatedSessions = sessions.slice(offset, offset + limit);
+      
+      // Transform to response format
+      const response = paginatedSessions.map(session => ({
+        session_id: session.id,
+        status: session.status,
+        vnc_url: session.vncPort 
+          ? `http://localhost:${session.vncPort}/vnc.html`
+          : '',
+        chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
+        created_at: session.createdAt.toISOString(),
+        expires_at: session.expiresAt.toISOString(),
+        initial_prompt: session.initialPrompt,
+      }));
+      
+      return {
+        sessions: response,
+        total: sessions.length,
+        limit,
+        offset,
+      };
+    } catch (error) {
+      logger.error('Error listing sessions:', error);
+      set.status = 500;
+      return {
+        error: 'Internal Server Error',
+        message: 'Failed to list sessions',
+      };
+    }
+  }, {
+    query: t.Object({
+      limit: t.Optional(t.String()),
+      offset: t.Optional(t.String())
+    }),
+    response: {
+      200: t.Object({
+        sessions: t.Array(SessionResponseSchema),
+        total: t.Number(),
+        limit: t.Number(),
+        offset: t.Number()
+      })
+    },
+    detail: {
+      tags: ['sessions'],
+      summary: 'List active sessions',
+      description: 'Returns a paginated list of active sessions',
+    },
+  })
   .post('/', async ({ body, queue, redis, set }) => {
     try {
       const { initial_prompt, timeout, environment } = body as CreateSessionRequest;
@@ -55,8 +115,8 @@ export const sessionRoutes = new Elysia({ prefix: '/session' })
       const response: SessionResponse = {
         session_id: session.id,
         status: session.status,
-        vnc_url: `http://${CONFIG.api.host}:${vncPort}/vnc.html`,
-        chat_url: `ws://${CONFIG.api.host}:${CONFIG.api.port}/session/${session.id}/chat`,
+        vnc_url: `http://localhost:${vncPort}/vnc.html`,
+        chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
         created_at: session.createdAt.toISOString(),
         expires_at: session.expiresAt.toISOString(),
       };
@@ -100,9 +160,9 @@ export const sessionRoutes = new Elysia({ prefix: '/session' })
         session_id: session.id,
         status: session.status,
         vnc_url: session.vncPort 
-          ? `http://${CONFIG.api.host}:${session.vncPort}/vnc.html`
+          ? `http://localhost:${session.vncPort}/vnc.html`
           : '',
-        chat_url: `ws://${CONFIG.api.host}:${CONFIG.api.port}/session/${session.id}/chat`,
+        chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
         created_at: session.createdAt.toISOString(),
         expires_at: session.expiresAt.toISOString(),
       };

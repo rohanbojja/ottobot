@@ -15,7 +15,11 @@ export const getGetHealthResponseMock = (
 ): GetHealth200One | Blob | GetHealth200Three =>
   faker.helpers.arrayElement([
     {
-      status: faker.helpers.arrayElement(["healthy", "degraded", "unhealthy"]),
+      status: faker.helpers.arrayElement([
+        "healthy",
+        "degraded",
+        "unhealthy",
+      ] as const),
       version: faker.string.alpha({ length: { min: 10, max: 20 } }),
       uptime: faker.number.float({
         min: undefined,
@@ -35,7 +39,11 @@ export const getGetHealthResponseMock = (
       ...overrideResponse,
     },
     {
-      status: faker.helpers.arrayElement(["healthy", "degraded", "unhealthy"]),
+      status: faker.helpers.arrayElement([
+        "healthy",
+        "degraded",
+        "unhealthy",
+      ] as const),
       version: faker.string.alpha({ length: { min: 10, max: 20 } }),
       uptime: faker.number.float({
         min: undefined,
@@ -55,7 +63,11 @@ export const getGetHealthResponseMock = (
       ...overrideResponse,
     },
     {
-      status: faker.helpers.arrayElement(["healthy", "degraded", "unhealthy"]),
+      status: faker.helpers.arrayElement([
+        "healthy",
+        "degraded",
+        "unhealthy",
+      ] as const),
       version: faker.string.alpha({ length: { min: 10, max: 20 } }),
       uptime: faker.number.float({
         min: undefined,
@@ -177,11 +189,125 @@ export const getGetHealthMetricsResponseMock = (
     },
   ]);
 
+export const getGetSessionResponseMock = (
+  overrideResponse: Partial<GetSession200One | Blob | GetSession200Three> = {},
+): GetSession200One | Blob | GetSession200Three =>
+  faker.helpers.arrayElement([
+    {
+      sessions: Array.from(
+        { length: faker.number.int({ min: 1, max: 10 }) },
+        (_, i) => i + 1,
+      ).map(() => ({
+        session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        status: faker.helpers.arrayElement([
+          "initializing",
+          "ready",
+          "running",
+          "terminating",
+          "terminated",
+          "error",
+        ] as const),
+        vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+        expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      })),
+      total: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      limit: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      offset: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      ...overrideResponse,
+    },
+    {
+      sessions: Array.from(
+        { length: faker.number.int({ min: 1, max: 10 }) },
+        (_, i) => i + 1,
+      ).map(() => ({
+        session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        status: faker.helpers.arrayElement([
+          "initializing",
+          "ready",
+          "running",
+          "terminating",
+          "terminated",
+          "error",
+        ] as const),
+        vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+        expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      })),
+      total: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      limit: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      offset: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      ...overrideResponse,
+    },
+    {
+      sessions: Array.from(
+        { length: faker.number.int({ min: 1, max: 10 }) },
+        (_, i) => i + 1,
+      ).map(() => ({
+        session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        status: faker.helpers.arrayElement([
+          "initializing",
+          "ready",
+          "running",
+          "terminating",
+          "terminated",
+          "error",
+        ] as const),
+        vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
+        created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+        expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      })),
+      total: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      limit: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      offset: faker.number.float({
+        min: undefined,
+        max: undefined,
+        fractionDigits: 2,
+      }),
+      ...overrideResponse,
+    },
+  ]);
+
 export const getPostSessionResponseMock = (
   overrideResponse: Partial<
-    PostSession200One | Blob | PostSession200Three
+    PostSession201One | Blob | PostSession201Three
   > = {},
-): PostSession200One | Blob | PostSession200Three =>
+): PostSession201One | Blob | PostSession201Three =>
   faker.helpers.arrayElement([
     {
       session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
@@ -192,7 +318,7 @@ export const getPostSessionResponseMock = (
         "terminating",
         "terminated",
         "error",
-      ]),
+      ] as const),
       vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
@@ -208,7 +334,7 @@ export const getPostSessionResponseMock = (
         "terminating",
         "terminated",
         "error",
-      ]),
+      ] as const),
       vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
@@ -224,7 +350,7 @@ export const getPostSessionResponseMock = (
         "terminating",
         "terminated",
         "error",
-      ]),
+      ] as const),
       vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
@@ -248,7 +374,7 @@ export const getGetSessionByIdResponseMock = (
         "terminating",
         "terminated",
         "error",
-      ]),
+      ] as const),
       vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
@@ -264,7 +390,7 @@ export const getGetSessionByIdResponseMock = (
         "terminating",
         "terminated",
         "error",
-      ]),
+      ] as const),
       vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
@@ -280,11 +406,34 @@ export const getGetSessionByIdResponseMock = (
         "terminating",
         "terminated",
         "error",
-      ]),
+      ] as const),
       vnc_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      ...overrideResponse,
+    },
+  ]);
+
+export const getDeleteSessionByIdResponseMock = (
+  overrideResponse: Partial<
+    DeleteSessionById202One | Blob | DeleteSessionById202Three
+  > = {},
+): DeleteSessionById202One | Blob | DeleteSessionById202Three =>
+  faker.helpers.arrayElement([
+    {
+      message: faker.string.alpha({ length: { min: 10, max: 20 } }),
+      session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
+      ...overrideResponse,
+    },
+    {
+      message: faker.string.alpha({ length: { min: 10, max: 20 } }),
+      session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
+      ...overrideResponse,
+    },
+    {
+      message: faker.string.alpha({ length: { min: 10, max: 20 } }),
+      session_id: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
   ]);
@@ -390,18 +539,45 @@ export const getGetHealthMetricsMockHandler = (
   });
 };
 
+export const getGetSessionMockHandler = (
+  overrideResponse?:
+    | GetSession200One
+    | Blob
+    | GetSession200Three
+    | ((
+        info: Parameters<Parameters<typeof http.get>[1]>[0],
+      ) =>
+        | Promise<GetSession200One | Blob | GetSession200Three>
+        | GetSession200One
+        | Blob
+        | GetSession200Three),
+) => {
+  return http.get("*/session/", async (info) => {
+    await delay(1000);
+
+    return new HttpResponse(
+      overrideResponse !== undefined
+        ? typeof overrideResponse === "function"
+          ? await overrideResponse(info)
+          : overrideResponse
+        : getGetSessionResponseMock(),
+      { status: 200, headers: { "Content-Type": "text/plain" } },
+    );
+  });
+};
+
 export const getPostSessionMockHandler = (
   overrideResponse?:
-    | PostSession200One
+    | PostSession201One
     | Blob
-    | PostSession200Three
+    | PostSession201Three
     | ((
         info: Parameters<Parameters<typeof http.post>[1]>[0],
       ) =>
-        | Promise<PostSession200One | Blob | PostSession200Three>
-        | PostSession200One
+        | Promise<PostSession201One | Blob | PostSession201Three>
+        | PostSession201One
         | Blob
-        | PostSession200Three),
+        | PostSession201Three),
 ) => {
   return http.post("*/session/", async (info) => {
     await delay(1000);
@@ -412,7 +588,7 @@ export const getPostSessionMockHandler = (
           ? await overrideResponse(info)
           : overrideResponse
         : getPostSessionResponseMock(),
-      { status: 200, headers: { "Content-Type": "text/plain" } },
+      { status: 201, headers: { "Content-Type": "text/plain" } },
     );
   });
 };
@@ -446,17 +622,28 @@ export const getGetSessionByIdMockHandler = (
 
 export const getDeleteSessionByIdMockHandler = (
   overrideResponse?:
-    | void
+    | DeleteSessionById202One
+    | Blob
+    | DeleteSessionById202Three
     | ((
         info: Parameters<Parameters<typeof http.delete>[1]>[0],
-      ) => Promise<void> | void),
+      ) =>
+        | Promise<DeleteSessionById202One | Blob | DeleteSessionById202Three>
+        | DeleteSessionById202One
+        | Blob
+        | DeleteSessionById202Three),
 ) => {
   return http.delete("*/session/:id", async (info) => {
     await delay(1000);
-    if (typeof overrideResponse === "function") {
-      await overrideResponse(info);
-    }
-    return new HttpResponse(null, { status: 200 });
+
+    return new HttpResponse(
+      overrideResponse !== undefined
+        ? typeof overrideResponse === "function"
+          ? await overrideResponse(info)
+          : overrideResponse
+        : getDeleteSessionByIdResponseMock(),
+      { status: 202, headers: { "Content-Type": "text/plain" } },
+    );
   });
 };
 
@@ -505,6 +692,7 @@ export const getGetDownloadByIdByFileMockHandler = (
 export const getOttoBotAPIMock = () => [
   getGetHealthMockHandler(),
   getGetHealthMetricsMockHandler(),
+  getGetSessionMockHandler(),
   getPostSessionMockHandler(),
   getGetSessionByIdMockHandler(),
   getDeleteSessionByIdMockHandler(),

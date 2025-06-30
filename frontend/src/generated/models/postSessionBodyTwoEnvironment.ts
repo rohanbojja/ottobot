@@ -11,7 +11,12 @@
  * Development environment preset
  */
 export type PostSessionBodyTwoEnvironment =
-  | "node"
-  | "python"
-  | "full-stack"
-  | "data-science";
+  (typeof PostSessionBodyTwoEnvironment)[keyof typeof PostSessionBodyTwoEnvironment];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PostSessionBodyTwoEnvironment = {
+  node: "node",
+  python: "python",
+  "full-stack": "full-stack",
+  "data-science": "data-science",
+} as const;

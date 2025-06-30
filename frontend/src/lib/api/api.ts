@@ -20,6 +20,14 @@ export const sessionApi = {
   createSession: (data: CreateSessionRequest): Promise<SessionResponse> =>
     apiClient.post('/session', data).then(res => res.data),
     
+  listSessions: (params?: { limit?: number; offset?: number }): Promise<{
+    sessions: SessionResponse[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> =>
+    apiClient.get('/session', { params }).then(res => res.data),
+    
   getSession: (id: string): Promise<SessionResponse> =>
     apiClient.get(`/session/${id}`).then(res => res.data),
     

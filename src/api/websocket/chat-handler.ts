@@ -3,9 +3,13 @@ import { SessionManager } from '@/shared/session-manager';
 import { createLogger } from '@/shared/logger';
 import { UserMessageSchema } from '@/shared/schemas/websocket';
 import { JOB_NAMES } from '@/shared/queue';
+import { SessionRouter } from '@/shared/session-router';
 import type { ChatMessage } from '@/shared/types';
 
 const logger = createLogger('websocket');
+
+// Store active subscriptions
+const activeSubscriptions = new Map<any, () => void>();
 
 export const chatWebSocketHandler = {
   open(ws: any) {
@@ -34,6 +38,18 @@ export const chatWebSocketHandler = {
         ws.close();
         return;
       }
+
+      // Subscribe to session messages
+      const unsubscribe = SessionRouter.subscribe(sessionId, (message: ChatMessage) => {
+        try {
+          ws.send(message);
+        } catch (error) {
+          logger.error(`Failed to send message to WebSocket for session ${sessionId}:`, error);
+        }
+      });
+      
+      // Store the unsubscribe function
+      activeSubscriptions.set(ws, unsubscribe);
 
       // Send connection confirmation
       ws.send({
@@ -130,6 +146,13 @@ export const chatWebSocketHandler = {
   close(ws: any) {
     const sessionId = ws.data.params.id;
     logger.info(`WebSocket closed for session ${sessionId}`);
+    
+    // Unsubscribe from session messages
+    const unsubscribe = activeSubscriptions.get(ws);
+    if (unsubscribe) {
+      unsubscribe();
+      activeSubscriptions.delete(ws);
+    }
   },
   
   error(ws: any, error: Error) {

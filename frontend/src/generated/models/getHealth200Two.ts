@@ -10,6 +10,7 @@ import type { GetHealth200TwoStatus } from "./getHealth200TwoStatus";
 import type { GetHealth200TwoServices } from "./getHealth200TwoServices";
 
 export type GetHealth200Two = {
+  /** Overall system health status */
   status: GetHealth200TwoStatus;
   version: string;
   /** Uptime in seconds */

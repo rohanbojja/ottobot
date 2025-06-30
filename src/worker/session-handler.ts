@@ -2,7 +2,7 @@ import { Job } from 'bullmq';
 import { SessionManager } from '@/shared/session-manager';
 import { createLogger } from '@/shared/logger';
 import { ContainerManager } from './container-manager';
-import { SessionRouter } from '@/api/websocket/session-router';
+import { SessionRouter } from '@/shared/session-router';
 import { CodingAgent } from '@/agent/coding-agent';
 import type { WorkerJob, ChatMessage } from '@/shared/types';
 
@@ -150,6 +150,13 @@ export class SessionHandler {
       if (!agent) {
         throw new Error('Agent not running');
       }
+
+      // First, publish the user's message
+      await SessionRouter.publish(sessionId, {
+        type: 'user_prompt',
+        content: message.content,
+        timestamp: Date.now(),
+      });
 
       // Process message with agent
       await agent.processMessage(message.content);

@@ -7,10 +7,18 @@
  *  *\/
  */
 
+/**
+ * Current status of the session
+ */
 export type GetSessionById200OneStatus =
-  | "initializing"
-  | "ready"
-  | "running"
-  | "terminating"
-  | "terminated"
-  | "error";
+  (typeof GetSessionById200OneStatus)[keyof typeof GetSessionById200OneStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const GetSessionById200OneStatus = {
+  initializing: "initializing",
+  ready: "ready",
+  running: "running",
+  terminating: "terminating",
+  terminated: "terminated",
+  error: "error",
+} as const;
