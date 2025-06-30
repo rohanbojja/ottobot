@@ -17,58 +17,77 @@
 
 
 <QueryClientProvider client={queryClient}>
-    <div class="min-h-screen bg-background">
-	<!-- Navigation Header -->
-	<header class="sticky top-0 z-50 w-full border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-		<div class="container flex h-14 max-w-screen-2xl items-center">
-			<!-- Logo -->
-			<div class="mr-4 flex">
-				<a class="mr-4 flex items-center gap-2 lg:mr-6" href="/">
-					<Code class="h-6 w-6" />
-					<span class="font-bold">OttoBot</span>
-				</a>
+	<div class="min-h-screen bg-gradient-to-br from-background to-muted/20">
+		<!-- Navigation Header -->
+		<header class="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm">
+			<div class="container flex h-16 max-w-screen-2xl items-center px-4 mx-auto">
+				<!-- Logo -->
+				<div class="mr-8 flex">
+					<a class="flex items-center gap-3 hover:opacity-80 transition-opacity" href="/">
+						<div class="flex items-center justify-center w-8 h-8 bg-primary text-primary-foreground rounded-lg">
+							<Code class="h-5 w-5" />
+						</div>
+						<span class="font-bold text-xl tracking-tight">OttoBot</span>
+					</a>
+				</div>
+
+				<!-- Navigation Links -->
+				<div class="flex flex-1 items-center justify-between space-x-2 md:justify-end">
+					<nav class="flex items-center gap-1 text-sm lg:gap-2">
+						<a
+							class="px-3 py-2 rounded-md font-medium transition-colors hover:bg-accent hover:text-accent-foreground text-muted-foreground hover:text-foreground"
+							href="/"
+						>
+							Dashboard
+						</a>
+						<a
+							class="px-3 py-2 rounded-md font-medium transition-colors hover:bg-accent hover:text-accent-foreground text-muted-foreground hover:text-foreground"
+							href="/sessions"
+						>
+							Sessions
+						</a>
+						<a
+							class="px-3 py-2 rounded-md font-medium transition-colors hover:bg-accent hover:text-accent-foreground text-muted-foreground hover:text-foreground"
+							href="/docs"
+						>
+							Documentation
+						</a>
+					</nav>
+
+					<!-- Theme Toggle -->
+					<Button.Button
+						variant="ghost"
+						size="sm"
+						onclick={toggleDark}
+						class="h-9 w-9 px-0 ml-4 hover:bg-accent"
+						aria-label="Toggle theme"
+					>
+						<Sun class="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+						<Moon class="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+						<span class="sr-only">Toggle theme</span>
+					</Button.Button>
+				</div>
 			</div>
+		</header>
 
-			<!-- Navigation Links -->
-			<div class="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-				<nav class="flex items-center gap-4 text-sm lg:gap-6">
-					<a
-						class="transition-colors hover:text-foreground/80 text-foreground/60"
-						href="/"
-					>
-						Dashboard
-					</a>
-					<a
-						class="transition-colors hover:text-foreground/80 text-foreground/60"
-						href="/sessions"
-					>
-						Sessions
-					</a>
-					<a
-						class="transition-colors hover:text-foreground/80 text-foreground/60"
-						href="/docs"
-					>
-						Docs
-					</a>
-				</nav>
+		<!-- Main Content -->
+		<main class="container mx-auto px-4 py-8 max-w-screen-2xl">
+			{@render children()}
+		</main>
 
-				<!-- Theme Toggle -->
-				<Button.Button
-					variant="ghost"
-					size="sm"
-					onclick={toggleDark}
-					class="h-8 w-8 px-0"
-				>
-					<Sun class="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-					<Moon class="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-					<span class="sr-only">Toggle theme</span>
-				</Button.Button>
+		<!-- Footer -->
+		<footer class="border-t bg-muted/50 mt-auto">
+			<div class="container mx-auto px-4 py-6 max-w-screen-2xl">
+				<div class="flex flex-col items-center justify-between gap-4 md:flex-row">
+					<div class="flex items-center gap-2 text-sm text-muted-foreground">
+						<Code class="h-4 w-4" />
+						<span>OttoBot - Interactive AI Coding Agent</span>
+					</div>
+					<div class="text-sm text-muted-foreground">
+						Built with SvelteKit, Elysia & LangGraph
+					</div>
+				</div>
 			</div>
-		</div>
-	</header>
-
-	<!-- Main Content -->
-	<main>
-		{@render children()}
-	</main>
-    </div></QueryClientProvider>
+		</footer>
+	</div>
+</QueryClientProvider>

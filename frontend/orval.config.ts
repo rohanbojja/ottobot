@@ -3,18 +3,19 @@ import { defineConfig } from "orval";
 export default defineConfig({
   sigflow: {
     input: {
-      target: "http://localhost:8080/api-docs/openapi.json",
+      target: "http://localhost:3000/swagger/json",
+      validation: false,
     },
     output: {
       mode: "split",
-      target: "./generated/api.ts",
-      schemas: "./generated/models",
+      target: "./src/generated/api.ts",
+      schemas: "./src/generated/models",
       client: "svelte-query",
       mock: true,
       prettier: true,
       override: {
         mutator: {
-          path: "./generated/api-client.ts",
+          path: "./src/generated/api-client.ts",
           name: "customInstance",
         },
         query: {

@@ -11,12 +11,8 @@ export const CreateSessionSchema = t.Object({
     maximum: 7200,
     description: 'Session timeout in seconds (default: 3600)'
   })),
-  environment: t.Optional(t.Union([
-    t.Literal('node'),
-    t.Literal('python'), 
-    t.Literal('full-stack'),
-    t.Literal('data-science')
-  ], {
+  environment: t.Optional(t.String({
+    enum: ['node', 'python', 'full-stack', 'data-science'],
     description: 'Development environment preset'
   }))
 });
@@ -25,14 +21,10 @@ export const SessionResponseSchema = t.Object({
   session_id: t.String({
     description: 'Unique session identifier'
   }),
-  status: t.Union([
-    t.Literal('initializing'),
-    t.Literal('ready'),
-    t.Literal('running'),
-    t.Literal('terminating'),
-    t.Literal('terminated'),
-    t.Literal('error')
-  ]),
+  status: t.String({
+    enum: ['initializing', 'ready', 'running', 'terminating', 'terminated', 'error'],
+    description: 'Current status of the session'
+  }),
   vnc_url: t.String({
     description: 'URL to access the VNC session'
   }),

@@ -1,11 +1,10 @@
 import { t } from 'elysia';
 
 export const HealthResponseSchema = t.Object({
-  status: t.Union([
-    t.Literal('healthy'),
-    t.Literal('degraded'),
-    t.Literal('unhealthy')
-  ]),
+  status: t.String({ 
+    enum: ['healthy', 'degraded', 'unhealthy'],
+    description: 'Overall system health status'
+  }),
   version: t.String(),
   uptime: t.Number({
     description: 'Uptime in seconds'

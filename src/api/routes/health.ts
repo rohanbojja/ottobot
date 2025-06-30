@@ -72,7 +72,9 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
       };
     }
   }, {
-    response: HealthResponseSchema,
+    response: {
+      200: HealthResponseSchema
+    },
     detail: {
       tags: ['health'],
       summary: 'System health check',
@@ -128,7 +130,9 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
       };
     }
   }, {
-    response: MetricsResponseSchema,
+    response: {
+      200: MetricsResponseSchema
+    },
     detail: {
       tags: ['health'],
       summary: 'System metrics',

@@ -50,5 +50,8 @@
     "axios": "^1.10.0",
     "mode-watcher": "^1.1.0",
     "orval": "^7.10.0"
+  },
+  "resolutions": {
+    "ajv": "^8.12.0"
   }
 }

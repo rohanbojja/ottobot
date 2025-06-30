@@ -1,4 +1,4 @@
-import { Elysia } from 'elysia';
+import { Elysia, t } from 'elysia';
 import { 
   CreateSessionSchema, 
   SessionResponseSchema, 
@@ -74,7 +74,9 @@ export const sessionRoutes = new Elysia({ prefix: '/session' })
     }
   }, {
     body: CreateSessionSchema,
-    response: SessionResponseSchema,
+    response: {
+      201: SessionResponseSchema
+    },
     detail: {
       tags: ['sessions'],
       summary: 'Create a new coding session',
@@ -116,7 +118,9 @@ export const sessionRoutes = new Elysia({ prefix: '/session' })
     }
   }, {
     params: SessionIdParamSchema,
-    response: SessionResponseSchema,
+    response: {
+      200: SessionResponseSchema
+    },
     detail: {
       tags: ['sessions'],
       summary: 'Get session status',
@@ -166,6 +170,12 @@ export const sessionRoutes = new Elysia({ prefix: '/session' })
     }
   }, {
     params: SessionIdParamSchema,
+    response: {
+      202: t.Object({
+        message: t.String(),
+        session_id: t.String()
+      })
+    },
     detail: {
       tags: ['sessions'],
       summary: 'Terminate session',
@@ -202,7 +212,9 @@ export const sessionRoutes = new Elysia({ prefix: '/session' })
     }
   }, {
     params: SessionIdParamSchema,
-    response: SessionLogsResponseSchema,
+    response: {
+      200: SessionLogsResponseSchema
+    },
     detail: {
       tags: ['sessions'],
       summary: 'Get session logs',
