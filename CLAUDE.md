@@ -190,3 +190,7 @@ Key environment variables that must be set:
 - Session recording and playback
 - Collaborative sessions
 - Custom container images per environment
+
+## Memories
+
+- use bun always
