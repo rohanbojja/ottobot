@@ -22,10 +22,12 @@ User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + La
 
 - **Runtime**: Bun (not Node.js) - Use Bun-specific APIs where applicable
 - **Language**: TypeScript with strict mode enabled
-- **API Framework**: Elysia (not Express/Fastify)
+- **Backend**: Elysia (not Express/Fastify) with OpenAPI/Swagger
+- **Frontend**: SvelteKit with TanStack Query and shadcn-svelte
 - **Queue**: BullMQ with Redis
 - **AI**: LangGraph (TypeScript) + Anthropic Claude
 - **Containers**: Docker with VNC access via noVNC
+- **WebSocket**: Real-time communication with pub/sub via Redis
 
 ## Development Commands
 
@@ -36,8 +38,12 @@ Always run these commands to ensure code quality:
 bun run typecheck
 
 # Start development servers
-bun run dev:api     # API server
+bun run dev:api     # API server on port 3000
 bun run dev:worker  # Worker process
+
+# Frontend development (in frontend/ directory)
+bun run dev         # Frontend dev server on port 5173
+bun generate:api    # Generate API client from OpenAPI
 
 # Docker commands
 docker-compose up -d              # Production
@@ -57,12 +63,12 @@ docker-compose -f docker-compose.dev.yml up -d  # Development
 ```
 src/
 ├── api/          # Elysia API server code
-│   ├── routes/   # HTTP endpoints
-│   ├── websocket/# WebSocket handlers
+│   ├── routes/   # HTTP endpoints (sessions, health, downloads)
+│   ├── websocket/# WebSocket handlers (chat)
 │   └── plugins/  # Elysia plugins (Redis, Queue)
 ├── worker/       # Worker process code
 │   ├── worker.ts # Main worker class
-│   ├── session-handler.ts # Session lifecycle
+│   ├── session-handler.ts # Session lifecycle management
 │   └── container-manager.ts # Docker operations
 ├── agent/        # LangGraph agent code
 │   ├── coding-agent.ts # Main agent logic
@@ -70,10 +76,25 @@ src/
 │   └── context-manager.ts # Token management
 ├── shared/       # Shared code
 │   ├── types.ts  # TypeScript interfaces
-│   ├── schemas/  # Elysia validation schemas
+│   ├── schemas/  # Elysia validation schemas (health, session, websocket)
 │   ├── config.ts # Configuration
-│   └── logger.ts # Logging setup
+│   ├── logger.ts # Logging setup
+│   ├── session-manager.ts # Session state management
+│   ├── session-router.ts # WebSocket pub/sub for messages
+│   └── queue.ts  # BullMQ job definitions
 └── index.ts      # Entry point
+
+frontend/
+├── src/
+│   ├── routes/   # SvelteKit pages
+│   │   ├── +layout.svelte # Main layout with navigation
+│   │   ├── +page.svelte # Dashboard with session list
+│   │   └── session/[id]/+page.svelte # Session interface
+│   ├── lib/
+│   │   ├── api/  # API client and queries
+│   │   ├── components/ui/ # shadcn-svelte components
+│   │   └── stores/ # Svelte stores (workspace theme)
+│   └── app.css   # Global styles
 ```
 
 ## Common Patterns
@@ -82,18 +103,28 @@ src/
 
 ```typescript
 // In src/api/routes/[route-name].ts
-import { Elysia } from 'elysia';
-import { t } from 'elysia'; // For schemas
+import { Elysia, t } from 'elysia';
 
 export const myRoutes = new Elysia({ prefix: '/my-route' })
   .get('/', async ({ query }) => {
     // Implementation
   }, {
     query: t.Object({ /* schema */ }),
-    response: t.Object({ /* schema */ }),
-    detail: { tags: ['category'], summary: 'Description' }
+    response: {
+      200: t.Object({ /* schema */ })
+    },
+    detail: { 
+      tags: ['category'], 
+      summary: 'Description',
+      description: 'Detailed description'
+    }
   });
 ```
+
+**Important**: Always include:
+- Response descriptions for OpenAPI compliance
+- Use `t.String({ enum: [...] })` instead of `t.Union([t.Literal(...)])`
+- Status codes in response object (e.g., `200`, `201`, `404`)
 
 ### Adding New Agent Tools
 
@@ -125,6 +156,39 @@ const data = await redis.get('key');
 const parsed = data ? JSON.parse(data) : null;
 ```
 
+### WebSocket Message Flow
+
+```typescript
+// Publishing messages (from worker/agent)
+import { SessionRouter } from '@/shared/session-router';
+
+await SessionRouter.publish(sessionId, {
+  type: 'agent_response',
+  content: 'Hello from agent',
+  timestamp: Date.now(),
+});
+
+// Subscribing to messages (in WebSocket handler)
+const unsubscribe = SessionRouter.subscribe(sessionId, (message) => {
+  ws.send(message);
+});
+```
+
+### Frontend API Integration
+
+```typescript
+// In frontend/src/lib/api/queries.ts
+import { createQuery } from '@tanstack/svelte-query';
+
+export function createSessionQuery(sessionId: string) {
+  return createQuery({
+    queryKey: ['session', sessionId],
+    queryFn: () => sessionApi.getSession(sessionId),
+    refetchInterval: 5000, // Poll every 5 seconds
+  });
+}
+```
+
 ## Important Considerations
 
 1. **Container Security**: 
@@ -138,14 +202,16 @@ const parsed = data ? JSON.parse(data) : null;
    - Use consistent hashing for worker assignment
 
 3. **WebSocket Communication**:
-   - All messages must follow defined schemas
-   - Use SessionRouter for pub/sub between workers
-   - Handle disconnections gracefully
+   - All messages must follow defined schemas in `@/shared/schemas/websocket`
+   - Use SessionRouter for pub/sub between API and worker processes
+   - Handle disconnections gracefully with auto-reconnection
+   - Message types: `user_prompt`, `agent_response`, `agent_thinking`, `agent_action`, `system_update`, `error`
 
 4. **Error Handling**:
    - Always update session status on errors
    - Log errors with appropriate context
    - Clean up resources (containers, ports) on failure
+   - Use try-catch blocks in all async operations
 
 ## Testing Checklist
 
@@ -191,6 +257,49 @@ Key environment variables that must be set:
 - Collaborative sessions
 - Custom container images per environment
 
+## Session Workflow
+
+The complete session creation and interaction flow:
+
+1. **Session Creation**: User creates session via frontend with initial prompt
+2. **API Processing**: Session record created, VNC port allocated, job queued
+3. **Worker Processing**: Container created with VNC, agent initialized
+4. **WebSocket Connection**: Frontend connects to chat WebSocket
+5. **Real-time Communication**: Messages flow through SessionRouter pub/sub
+6. **VNC Access**: User can view desktop via iframe when ready
+
+## Recent Improvements
+
+- ✅ Fixed OpenAPI schema validation for proper API client generation
+- ✅ Implemented complete session workflow with WebSocket integration
+- ✅ Added session list endpoint and frontend dashboard
+- ✅ Created session page with VNC viewer and chat interface
+- ✅ Fixed theme toggle and workspace store in frontend
+- ✅ Improved error handling and status management
+
+## API Endpoints
+
+### Sessions
+- `GET /session/` - List active sessions (paginated)
+- `POST /session/` - Create new session
+- `GET /session/:id` - Get session details
+- `DELETE /session/:id` - Terminate session
+- `GET /session/:id/logs` - Get session logs
+
+### Health & Monitoring
+- `GET /health/` - System health check
+- `GET /health/metrics` - System metrics
+
+### Downloads
+- `GET /download/:id/:file` - Download session artifacts
+
+### WebSocket
+- `WS /session/:id/chat` - Real-time chat with agent
+
 ## Memories
 
-- use bun always
+- Use bun always
+- Frontend API client generated from OpenAPI with `bun generate:api`
+- VNC URLs use localhost with dynamically allocated ports (6080-6200)
+- Session status flows: initializing → ready → running → terminated
+- WebSocket messages handled through SessionRouter for cross-process communication
