@@ -1,0 +1,101 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Desktop environment
+    xfce4 xfce4-goodies \
+    # VNC server
+    tightvncserver novnc websockify \
+    # Development tools
+    curl wget git vim nano \
+    build-essential software-properties-common \
+    # Browsers
+    firefox chromium-browser \
+    # System utilities
+    sudo net-tools iputils-ping \
+    zip unzip tar \
+    htop tree \
+    # Python
+    python3 python3-pip python3-venv \
+    # Docker
+    docker.io \
+    # SQLite
+    sqlite3 \
+    # Clean up
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
+
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
+
+# Install VS Code
+RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg \
+    && install -o root -g root -m 644 packages.microsoft.gpg /etc/apt/trusted.gpg.d/ \
+    && echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list \
+    && apt-get update \
+    && apt-get install -y code \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages for the agent
+RUN pip3 install --no-cache-dir \
+    langchain==0.1.0 \
+    langgraph==0.0.20 \
+    anthropic==0.17.0 \
+    python-dotenv==1.0.0 \
+    aiofiles==23.2.1 \
+    asyncio==3.4.3
+
+# Create user for running the desktop
+RUN useradd -m -s /bin/bash developer \
+    && echo 'developer:developer' | chpasswd \
+    && usermod -aG sudo,docker developer
+
+# Setup VNC
+USER developer
+WORKDIR /home/developer
+
+RUN mkdir -p ~/.vnc ~/.config/xfce4 \
+    && echo "developer" | vncpasswd -f > ~/.vnc/passwd \
+    && chmod 600 ~/.vnc/passwd
+
+# VNC startup script
+COPY --chown=developer:developer docker/scripts/xstartup ~/.vnc/xstartup
+RUN chmod +x ~/.vnc/xstartup
+
+# Copy VNC startup script
+COPY --chown=developer:developer docker/scripts/start-vnc.sh /home/developer/start-vnc.sh
+RUN chmod +x /home/developer/start-vnc.sh
+
+# Copy agent code
+COPY --chown=developer:developer src/agent /home/developer/agent
+
+# Create workspace directory
+RUN mkdir -p /home/developer/workspace
+
+# Expose ports
+# VNC port
+EXPOSE 5901
+# noVNC web port
+EXPOSE 6080
+# Additional ports for development
+EXPOSE 3000 4000 5000 8000 8080 8888
+
+# Environment variables
+ENV DISPLAY=:1
+ENV VNC_PORT=5901
+ENV VNC_RESOLUTION=1920x1080
+ENV VNC_COL_DEPTH=24
+ENV NOVNC_PORT=6080
+
+# Start VNC and noVNC
+CMD ["/home/developer/start-vnc.sh"]

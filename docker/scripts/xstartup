@@ -1,0 +1,12 @@
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+
+# Start XFCE desktop
+startxfce4 &
+
+# Set desktop background color
+xsetroot -solid grey
+
+# Start window manager
+xfwm4 &

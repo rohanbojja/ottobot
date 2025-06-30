@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ottobot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ottobot-network
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: ottobot-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - MODE=api
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - API_PORT=3000
+      - API_HOST=0.0.0.0
+      - SESSION_TIMEOUT=${SESSION_TIMEOUT:-3600}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./session-data:/app/session-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ottobot-network
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: ottobot-worker
+    restart: unless-stopped
+    environment:
+      - MODE=worker
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CONTAINER_MEMORY_LIMIT=${CONTAINER_MEMORY_LIMIT:-2g}
+      - CONTAINER_CPU_LIMIT=${CONTAINER_CPU_LIMIT:-1}
+      - VNC_PORT_RANGE_START=${VNC_PORT_RANGE_START:-6080}
+      - VNC_PORT_RANGE_END=${VNC_PORT_RANGE_END:-6200}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./session-data:/app/session-data
+      - ./logs:/app/logs
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+    networks:
+      - ottobot-network
+
+  # Example agent container (not started by default)
+  # This is used as a template for dynamic agent containers
+  ottobot-agent-template:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent
+    image: ottobot-agent:latest
+    profiles:
+      - template
+    networks:
+      - ottobot-network
+
+volumes:
+  redis-data:
+  session-data:
+  logs:
+
+networks:
+  ottobot-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

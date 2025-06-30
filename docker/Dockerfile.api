@@ -1,0 +1,28 @@
+FROM oven/bun:1.0-alpine
+
+WORKDIR /app
+
+# Install dependencies for production
+COPY package.json bun.lockb* ./
+RUN bun install --frozen-lockfile
+
+# Copy source code
+COPY src ./src
+COPY tsconfig.json ./
+
+# Build the application
+RUN bun build src/index.ts --outdir=dist --target=bun
+
+# Expose API port
+EXPOSE 3000
+
+# Set environment
+ENV MODE=api
+ENV NODE_ENV=production
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD bun run healthcheck || exit 1
+
+# Run the API server
+CMD ["bun", "dist/index.js"]

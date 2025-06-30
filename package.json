@@ -1,0 +1,41 @@
+{
+  "name": "ottobot",
+  "version": "1.0.0",
+  "description": "OttoBot - Interactive coding agent platform with VNC and LangGraph",
+  "type": "module",
+  "scripts": {
+    "dev:api": "MODE=api bun --watch src/index.ts",
+    "dev:worker": "MODE=worker bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "start:api": "MODE=api bun dist/index.js",
+    "start:worker": "MODE=worker bun dist/index.js",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up",
+    "docker:prod": "docker-compose up -d",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "elysia": "^0.8.0",
+    "@elysiajs/cors": "^0.8.0",
+    "@elysiajs/swagger": "^0.8.0",
+    "bullmq": "^4.0.0",
+    "ioredis": "^5.3.0",
+    "@langchain/core": "^0.1.0",
+    "@langchain/langgraph": "^0.0.20",
+    "@langchain/anthropic": "^0.1.0",
+    "dockerode": "^4.0.0",
+    "nanoid": "^5.0.0",
+    "zod": "^3.22.0",
+    "winston": "^3.11.0",
+    "archiver": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "@types/dockerode": "^3.3.0",
+    "@types/archiver": "^6.0.0",
+    "typescript": "^5.3.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0"
+  }
+}
