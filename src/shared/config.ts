@@ -51,9 +51,7 @@ export const CONFIG = {
 
   // Security Configuration
   security: {
-    corsOrigins: (process.env.CORS_ORIGINS || "http://localhost:3000").split(
-      ",",
-    ),
+    corsOrigins: process.env.CORS_ORIGINS || "localhost:5173",
     rateLimitWindowMs: 60 * 1000, // 1 minute
     rateLimitMaxRequests: 100,
   },

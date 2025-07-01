@@ -1,25 +1,28 @@
-import { nanoid } from 'nanoid';
-import type { Session, SessionStatus } from './types';
-import { redis } from '@/api/plugins/redis';
-import { createLogger } from './logger';
-import { CONFIG } from './config';
+import { nanoid } from "nanoid";
+import type { Session, SessionStatus } from "./types";
+import { redis } from "@/api/plugins/redis";
+import { createLogger } from "./logger";
+import { CONFIG } from "./config";
 
-const logger = createLogger('session-manager');
+const logger = createLogger("session-manager");
 
-const SESSION_PREFIX = 'session:';
-const SESSION_INDEX = 'sessions:index';
-const SESSION_BY_WORKER = 'sessions:by-worker:';
+const SESSION_PREFIX = "session:";
+const SESSION_INDEX = "sessions:index";
+const SESSION_BY_WORKER = "sessions:by-worker:";
 
 export class SessionManager {
   // Create a new session
-  static async createSession(initialPrompt: string, timeout?: number): Promise<Session> {
+  static async createSession(
+    initialPrompt: string,
+    timeout?: number,
+  ): Promise<Session> {
     const sessionId = nanoid();
     const now = new Date();
     const timeoutMs = (timeout || CONFIG.session.timeout / 1000) * 1000;
-    
+
     const session: Session = {
       id: sessionId,
-      status: 'initializing',
+      status: "initializing",
       initialPrompt,
       createdAt: now,
       updatedAt: now,
@@ -30,7 +33,7 @@ export class SessionManager {
     await redis.setex(
       `${SESSION_PREFIX}${sessionId}`,
       timeoutMs / 1000, // TTL in seconds
-      JSON.stringify(session)
+      JSON.stringify(session),
     );
 
     // Add to session index
@@ -44,12 +47,14 @@ export class SessionManager {
   static async getSession(sessionId: string): Promise<Session | null> {
     const data = await redis.get(`${SESSION_PREFIX}${sessionId}`);
     if (!data) return null;
-
     return JSON.parse(data);
   }
 
   // Update session
-  static async updateSession(sessionId: string, updates: Partial<Session>): Promise<Session | null> {
+  static async updateSession(
+    sessionId: string,
+    updates: Partial<Session>,
+  ): Promise<Session | null> {
     const session = await this.getSession(sessionId);
     if (!session) return null;
 
@@ -65,7 +70,7 @@ export class SessionManager {
       await redis.setex(
         `${SESSION_PREFIX}${sessionId}`,
         ttl,
-        JSON.stringify(updatedSession)
+        JSON.stringify(updatedSession),
       );
     }
 
@@ -82,10 +87,14 @@ export class SessionManager {
   }
 
   // Update session status
-  static async updateSessionStatus(sessionId: string, status: SessionStatus, error?: string): Promise<void> {
+  static async updateSessionStatus(
+    sessionId: string,
+    status: SessionStatus,
+    error?: string,
+  ): Promise<void> {
     const updates: Partial<Session> = { status };
     if (error) updates.error = error;
-    
+
     await this.updateSession(sessionId, updates);
   }
 
@@ -119,7 +128,7 @@ export class SessionManager {
 
     for (const id of sessionIds) {
       const session = await this.getSession(id);
-      if (session && session.status !== 'terminated') {
+      if (session && session.status !== "terminated") {
         sessions.push(session);
       }
     }
@@ -133,10 +142,13 @@ export class SessionManager {
   }
 
   // Store session message
-  static async addSessionMessage(sessionId: string, message: any): Promise<void> {
+  static async addSessionMessage(
+    sessionId: string,
+    message: any,
+  ): Promise<void> {
     const key = `session:messages:${sessionId}`;
     await redis.rpush(key, JSON.stringify(message));
-    
+
     // Set expiry to match session TTL
     const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
     if (ttl > 0) {
@@ -145,17 +157,25 @@ export class SessionManager {
   }
 
   // Get session messages
-  static async getSessionMessages(sessionId: string, limit?: number): Promise<any[]> {
+  static async getSessionMessages(
+    sessionId: string,
+    limit?: number,
+  ): Promise<any[]> {
     const key = `session:messages:${sessionId}`;
-    const messages = limit 
+    const messages = limit
       ? await redis.lrange(key, -limit, -1)
       : await redis.lrange(key, 0, -1);
-    
-    return messages.map(msg => JSON.parse(msg));
+
+    return messages.map((msg) => JSON.parse(msg));
   }
 
   // Add session log
-  static async addSessionLog(sessionId: string, level: string, message: string, metadata?: any): Promise<void> {
+  static async addSessionLog(
+    sessionId: string,
+    level: string,
+    message: string,
+    metadata?: any,
+  ): Promise<void> {
     const log = {
       timestamp: new Date().toISOString(),
       level,
@@ -165,10 +185,10 @@ export class SessionManager {
 
     const key = `session:logs:${sessionId}`;
     await redis.rpush(key, JSON.stringify(log));
-    
+
     // Keep only last 1000 logs
     await redis.ltrim(key, -1000, -1);
-    
+
     // Set expiry to match session TTL
     const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
     if (ttl > 0) {
@@ -177,27 +197,30 @@ export class SessionManager {
   }
 
   // Get session logs
-  static async getSessionLogs(sessionId: string, limit: number = 100): Promise<any[]> {
+  static async getSessionLogs(
+    sessionId: string,
+    limit: number = 100,
+  ): Promise<any[]> {
     const key = `session:logs:${sessionId}`;
     const logs = await redis.lrange(key, -limit, -1);
-    return logs.map(log => JSON.parse(log));
+    return logs.map((log) => JSON.parse(log));
   }
 
   // Allocate VNC port
   static async allocateVncPort(): Promise<number | null> {
     const start = CONFIG.container.vncPortRangeStart;
     const end = CONFIG.container.vncPortRangeEnd;
-    
+
     for (let port = start; port <= end; port++) {
-      const allocated = await redis.setnx(`vnc:port:${port}`, '1');
+      const allocated = await redis.setnx(`vnc:port:${port}`, "1");
       if (allocated) {
         // Set expiry to prevent leaks
         await redis.expire(`vnc:port:${port}`, 7200); // 2 hours
         return port;
       }
     }
-    
-    logger.error('No available VNC ports');
+
+    logger.error("No available VNC ports");
     return null;
   }
 
@@ -211,10 +234,13 @@ export class SessionManager {
     return redis.get(`session:context:${sessionId}`);
   }
 
-  static async storeSessionContext(sessionId: string, context: string): Promise<void> {
+  static async storeSessionContext(
+    sessionId: string,
+    context: string,
+  ): Promise<void> {
     const key = `session:context:${sessionId}`;
     const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
-    
+
     if (ttl > 0) {
       await redis.setex(key, ttl, context);
     } else {
