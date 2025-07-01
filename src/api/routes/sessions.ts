@@ -25,7 +25,10 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
         const sessions = await SessionManager.getActiveSessions();
 
         // Sort by creation date (newest first)
-        sessions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        sessions.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
 
         // Apply pagination
         const paginatedSessions = sessions.slice(offset, offset + limit);
@@ -182,8 +185,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
             ? `http://localhost:${session.vncPort}/vnc.html`
             : "",
           chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
-          created_at: session.createdAt.toISOString(),
-          expires_at: session.expiresAt.toISOString(),
+          created_at: session.createdAt,
+          expires_at: session.expiresAt,
         };
 
         return response;

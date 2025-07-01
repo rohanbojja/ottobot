@@ -1,9 +1,9 @@
-import Docker from 'dockerode';
-import { CONFIG } from '@/shared/config';
-import { createLogger } from '@/shared/logger';
-import type { ContainerConfig } from '@/shared/types';
+import Docker from "dockerode";
+import { CONFIG } from "@/shared/config";
+import { createLogger } from "@/shared/logger";
+import type { ContainerConfig } from "@/shared/types";
 
-const logger = createLogger('container-manager');
+const logger = createLogger("container-manager");
 
 export class ContainerManager {
   private docker: Docker;
@@ -18,12 +18,12 @@ export class ContainerManager {
     vncPort: number;
   }): Promise<string> {
     const { sessionId, environment, vncPort } = options;
-    
+
     try {
       // Build container configuration
       const config: Docker.ContainerCreateOptions = {
         name: `ottobot-${sessionId}`,
-        Image: CONFIG.container.agentImage,
+        Image: "ottobot-mock-agent" || CONFIG.container.agentImage,
         Hostname: sessionId,
         Env: [
           `SESSION_ID=${sessionId}`,
@@ -38,20 +38,18 @@ export class ContainerManager {
           AutoRemove: false,
           NetworkMode: CONFIG.container.network,
           PortBindings: {
-            '6080/tcp': [{ HostPort: vncPort.toString() }],
+            "6080/tcp": [{ HostPort: vncPort.toString() }],
           },
-          Binds: [
-            `/app/session-data/${sessionId}:/home/developer/workspace`,
-          ],
-          SecurityOpt: ['no-new-privileges'],
+          Binds: [`/tmp/ottobot-session-data/${sessionId}:/home/developer/workspace`],
+          SecurityOpt: ["no-new-privileges"],
           ReadonlyRootfs: false,
         },
         ExposedPorts: {
-          '5901/tcp': {},
-          '6080/tcp': {},
+          "5901/tcp": {},
+          "6080/tcp": {},
         },
-        WorkingDir: '/home/developer/workspace',
-        User: 'developer',
+        WorkingDir: "/home/developer/workspace",
+        User: "developer",
         AttachStdin: false,
         AttachStdout: false,
         AttachStderr: false,
@@ -60,10 +58,13 @@ export class ContainerManager {
 
       const container = await this.docker.createContainer(config);
       logger.info(`Created container ${container.id} for session ${sessionId}`);
-      
+
       return container.id;
     } catch (error) {
-      logger.error(`Failed to create container for session ${sessionId}:`, error);
+      logger.error(
+        `Failed to create container for session ${sessionId}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -120,23 +121,27 @@ export class ContainerManager {
     }
   }
 
-  async waitForVnc(containerId: string, vncPort: number, maxRetries: number = 30): Promise<void> {
+  async waitForVnc(
+    containerId: string,
+    vncPort: number,
+    maxRetries: number = 30,
+  ): Promise<void> {
     logger.info(`Waiting for VNC on port ${vncPort} to be ready...`);
-    
+
     for (let i = 0; i < maxRetries; i++) {
       try {
         // Check if container is running
         const status = await this.getContainerStatus(containerId);
-        if (status !== 'running') {
+        if (status !== "running") {
           throw new Error(`Container is not running: ${status}`);
         }
 
         // Check if VNC port is accessible
         const response = await fetch(`http://localhost:${vncPort}/vnc.html`, {
-          method: 'HEAD',
+          method: "HEAD",
           signal: AbortSignal.timeout(1000),
         });
-        
+
         if (response.ok) {
           logger.info(`VNC on port ${vncPort} is ready`);
           return;
@@ -144,31 +149,34 @@ export class ContainerManager {
       } catch (error) {
         // Expected to fail initially
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    
+
     throw new Error(`VNC on port ${vncPort} did not become ready in time`);
   }
 
-  async executeCommand(containerId: string, command: string[]): Promise<{ stdout: string; stderr: string }> {
+  async executeCommand(
+    containerId: string,
+    command: string[],
+  ): Promise<{ stdout: string; stderr: string }> {
     try {
       const container = this.docker.getContainer(containerId);
       const exec = await container.exec({
         Cmd: command,
         AttachStdout: true,
         AttachStderr: true,
-        WorkingDir: '/home/developer/workspace',
-        User: 'developer',
+        WorkingDir: "/home/developer/workspace",
+        User: "developer",
       });
 
       const stream = await exec.start({ Detach: false });
-      
+
       return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
         const errChunks: Buffer[] = [];
-        
-        stream.on('data', (chunk) => {
+
+        stream.on("data", (chunk) => {
           // Docker multiplexes stdout/stderr
           // First byte indicates stream type
           if (chunk[0] === 1) {
@@ -177,23 +185,29 @@ export class ContainerManager {
             errChunks.push(chunk.slice(8)); // stderr
           }
         });
-        
-        stream.on('end', () => {
+
+        stream.on("end", () => {
           resolve({
             stdout: Buffer.concat(chunks).toString(),
             stderr: Buffer.concat(errChunks).toString(),
           });
         });
-        
-        stream.on('error', reject);
+
+        stream.on("error", reject);
       });
     } catch (error) {
-      logger.error(`Failed to execute command in container ${containerId}:`, error);
+      logger.error(
+        `Failed to execute command in container ${containerId}:`,
+        error,
+      );
       throw error;
     }
   }
 
-  async getContainerLogs(containerId: string, tail: number = 100): Promise<string> {
+  async getContainerLogs(
+    containerId: string,
+    tail: number = 100,
+  ): Promise<string> {
     try {
       const container = this.docker.getContainer(containerId);
       const stream = await container.logs({
@@ -202,7 +216,7 @@ export class ContainerManager {
         tail,
         timestamps: true,
       });
-      
+
       return stream.toString();
     } catch (error) {
       logger.error(`Failed to get container logs ${containerId}:`, error);
@@ -212,17 +226,17 @@ export class ContainerManager {
 
   private parseMemoryLimit(limit: string): number {
     const units = {
-      'b': 1,
-      'k': 1024,
-      'm': 1024 * 1024,
-      'g': 1024 * 1024 * 1024,
+      b: 1,
+      k: 1024,
+      m: 1024 * 1024,
+      g: 1024 * 1024 * 1024,
     };
-    
+
     const match = limit.toLowerCase().match(/^(\d+)([bkmg])$/);
     if (!match) {
       throw new Error(`Invalid memory limit: ${limit}`);
     }
-    
+
     const [, value, unit] = match;
     return parseInt(value, 10) * units[unit as keyof typeof units];
   }
@@ -232,7 +246,7 @@ export class ContainerManager {
       await this.docker.ping();
       return true;
     } catch (error) {
-      logger.error('Docker health check failed:', error);
+      logger.error("Docker health check failed:", error);
       return false;
     }
   }
@@ -242,13 +256,13 @@ export class ContainerManager {
       const containers = await this.docker.listContainers({
         all: true,
         filters: {
-          label: ['managed-by=ottobot'],
+          label: ["managed-by=ottobot"],
         },
       });
-      
+
       return containers;
     } catch (error) {
-      logger.error('Failed to list containers:', error);
+      logger.error("Failed to list containers:", error);
       throw error;
     }
   }
@@ -257,11 +271,11 @@ export class ContainerManager {
     try {
       const containers = await this.listSessionContainers();
       const now = Date.now();
-      
+
       for (const containerInfo of containers) {
         const created = containerInfo.Created * 1000;
         const age = now - created;
-        
+
         // Remove containers older than 2 hours
         if (age > 2 * 60 * 60 * 1000) {
           logger.info(`Removing stale container ${containerInfo.Id}`);
@@ -269,7 +283,7 @@ export class ContainerManager {
         }
       }
     } catch (error) {
-      logger.error('Failed to cleanup stale containers:', error);
+      logger.error("Failed to cleanup stale containers:", error);
     }
   }
 }

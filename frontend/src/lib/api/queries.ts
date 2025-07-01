@@ -65,6 +65,10 @@ export function createDeleteSessionMutation() {
       queryClient.removeQueries({ 
         queryKey: queryKeys.session(sessionId) 
       });
+      // Invalidate sessions list
+      queryClient.invalidateQueries({ 
+        queryKey: queryKeys.sessions 
+      });
       // Invalidate health metrics
       queryClient.invalidateQueries({ 
         queryKey: queryKeys.healthMetrics() 

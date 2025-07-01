@@ -1,15 +1,16 @@
 <script lang="ts">
-  import { Plus, Activity, Zap, Monitor } from "@lucide/svelte";
+  import { Plus, Activity, Zap, Monitor, Trash2, ExternalLink } from "@lucide/svelte";
   import * as Button from "$lib/components/ui/button/index.js";
   import * as Card from "$lib/components/ui/card/index.js";
   import { getSessionStatusColor } from "$lib/utils.js";
-  import { createHealthQuery, createMetricsQuery, createSessionMutation, sessionApi } from "$lib/api/queries.js";
+  import { createHealthQuery, createMetricsQuery, createSessionMutation, createDeleteSessionMutation, sessionApi } from "$lib/api/queries.js";
   import { createQuery } from "@tanstack/svelte-query";
 
   // Use real API queries
   const healthQuery = createHealthQuery();
   const metricsQuery = createMetricsQuery();
   const sessionMutation = createSessionMutation();
+  const deleteSessionMutation = createDeleteSessionMutation();
   const sessionsQuery = createQuery({
     queryKey: ['sessions'],
     queryFn: () => sessionApi.listSessions({ limit: 10 }),
@@ -43,6 +44,24 @@
 
   function openSession(sessionId: string) {
     window.location.href = `/session/${sessionId}`;
+  }
+
+  async function deleteSession(sessionId: string, event: Event) {
+    event.stopPropagation(); // Prevent card click
+    if (confirm('Are you sure you want to delete this session? This action cannot be undone.')) {
+      try {
+        await $deleteSessionMutation.mutateAsync(sessionId);
+        $sessionsQuery.refetch(); // Refresh the list
+      } catch (error) {
+        console.error('Failed to delete session:', error);
+        alert('Failed to delete session. Please try again.');
+      }
+    }
+  }
+
+  function openVNC(vncUrl: string, event: Event) {
+    event.stopPropagation(); // Prevent card click
+    window.open(vncUrl, '_blank');
   }
   
   // Refresh session list after creating a new session
@@ -204,13 +223,29 @@
               </Card.CardDescription>
             </Card.CardHeader>
             <Card.CardContent>
-              <div class="flex gap-2">
-                <Button.Button size="sm" variant="outline">
-                  <Monitor class="mr-2 h-3 w-3" />
-                  VNC
-                </Button.Button>
-                <Button.Button size="sm" variant="ghost">
-                  View Details
+              <div class="flex gap-2 justify-between">
+                <div class="flex gap-2">
+                  <Button.Button 
+                    size="sm" 
+                    variant="outline"
+                    onclick={(e) => openVNC(session.vnc_url, e)}
+                    disabled={session.status !== 'ready' && session.status !== 'running'}
+                  >
+                    <ExternalLink class="mr-2 h-3 w-3" />
+                    VNC
+                  </Button.Button>
+                  <Button.Button size="sm" variant="ghost">
+                    View Details
+                  </Button.Button>
+                </div>
+                <Button.Button 
+                  size="sm" 
+                  variant="ghost"
+                  onclick={(e) => deleteSession(session.session_id, e)}
+                  disabled={$deleteSessionMutation.isPending}
+                  class="text-destructive hover:text-destructive"
+                >
+                  <Trash2 class="h-3 w-3" />
                 </Button.Button>
               </div>
             </Card.CardContent>

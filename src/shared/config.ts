@@ -46,7 +46,7 @@ export const CONFIG = {
     vncPortRangeStart: parseInt(process.env.VNC_PORT_RANGE_START || "6080", 10),
     vncPortRangeEnd: parseInt(process.env.VNC_PORT_RANGE_END || "6200", 10),
     network: process.env.CONTAINER_NETWORK || "ottobot-network",
-    agentImage: "ottobot-agent:latest",
+    agentImage: process.env.AGENT_IMAGE || "node:20-alpine",
   },
 
   // Security Configuration
@@ -70,8 +70,9 @@ export const CONFIG = {
 export function validateConfig(): void {
   const errors: string[] = [];
 
-  if (!CONFIG.agent.anthropicApiKey) {
-    errors.push("ANTHROPIC_API_KEY is required");
+  // Only require ANTHROPIC_API_KEY if not using mock agent
+  if (!CONFIG.agent.anthropicApiKey && !process.env.AGENT_IMAGE) {
+    errors.push("ANTHROPIC_API_KEY is required when using real agent");
   }
 
   if (CONFIG.container.vncPortRangeEnd <= CONFIG.container.vncPortRangeStart) {

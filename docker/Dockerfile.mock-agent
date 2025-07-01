@@ -1,0 +1,40 @@
+FROM alpine:latest
+
+# Install minimal VNC and desktop requirements
+RUN apk add --no-cache \
+    xvfb \
+    x11vnc \
+    fluxbox \
+    xterm \
+    bash \
+    python3 \
+    py3-pip \
+    curl \
+    && rm -rf /var/cache/apk/*
+
+# Install websockify for noVNC
+RUN pip3 install --break-system-packages websockify
+
+# Create user for running desktop
+RUN adduser -D -s /bin/bash developer
+
+# Setup VNC directory
+USER developer
+WORKDIR /home/developer
+RUN mkdir -p ~/.vnc
+
+# Create VNC password file (we'll start x11vnc without password for simplicity)
+RUN touch ~/.vnc/passwd
+
+# Copy startup script
+COPY --chown=developer:developer docker/scripts/start-mock-vnc.sh /home/developer/start-vnc.sh
+RUN chmod +x /home/developer/start-vnc.sh
+
+# Create workspace directory
+RUN mkdir -p /home/developer/workspace
+
+# Expose VNC ports
+EXPOSE 5901 6080
+
+# Start VNC environment
+CMD ["/home/developer/start-vnc.sh"]

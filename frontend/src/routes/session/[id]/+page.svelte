@@ -5,10 +5,10 @@
 	import { Card } from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { getSessionById } from '$lib/api/queries';
-	import { Send, Terminal, Loader2 } from '@lucide-svelte';
-	
+	import { Send, Terminal, Loader2 } from '@lucide/svelte/icons';
+
 	let { data: pageData } = $props();
-	
+
 	// Session state
 	let sessionId = $derived($page.params.id);
 	let chatInput = $state('');
@@ -16,26 +16,26 @@
 	let isConnected = $state(false);
 	let ws: WebSocket | null = null;
 	let vncLoaded = $state(false);
-	
+
 	// Query session details
 	const sessionQuery = createQuery({
 		queryKey: ['session', sessionId],
 		queryFn: () => getSessionById(sessionId),
 		refetchInterval: isConnected ? false : 5000, // Poll until connected
 	});
-	
+
 	// WebSocket connection
 	function connectWebSocket() {
 		if (!$sessionQuery.data?.chat_url) return;
-		
+
 		const wsUrl = $sessionQuery.data.chat_url;
 		ws = new WebSocket(wsUrl);
-		
+
 		ws.onopen = () => {
 			isConnected = true;
 			addMessage('system', 'Connected to session');
 		};
-		
+
 		ws.onmessage = (event) => {
 			try {
 				const message = JSON.parse(event.data);
@@ -44,12 +44,12 @@
 				console.error('Failed to parse WebSocket message:', e);
 			}
 		};
-		
+
 		ws.onerror = (error) => {
 			console.error('WebSocket error:', error);
 			addMessage('system', 'Connection error occurred');
 		};
-		
+
 		ws.onclose = () => {
 			isConnected = false;
 			addMessage('system', 'Disconnected from session');
@@ -61,7 +61,7 @@
 			}, 3000);
 		};
 	}
-	
+
 	function handleWebSocketMessage(message: any) {
 		switch (message.type) {
 			case 'user_prompt':
@@ -88,7 +88,7 @@
 				break;
 		}
 	}
-	
+
 	function addMessage(type: string, content: string) {
 		messages = [...messages, {
 			type,
@@ -103,25 +103,25 @@
 			}
 		}, 10);
 	}
-	
+
 	function sendMessage() {
 		if (!chatInput.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-		
+
 		ws.send(JSON.stringify({
 			type: 'user_prompt',
 			content: chatInput.trim()
 		}));
-		
+
 		chatInput = '';
 	}
-	
+
 	function handleKeyPress(event: KeyboardEvent) {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
 			sendMessage();
 		}
 	}
-	
+
 	onMount(() => {
 		// Connect WebSocket when session is ready
 		const checkAndConnect = () => {
@@ -129,22 +129,22 @@
 				connectWebSocket();
 			}
 		};
-		
+
 		// Initial check
 		checkAndConnect();
-		
+
 		// Set up interval to check status
 		const interval = setInterval(checkAndConnect, 2000);
-		
+
 		return () => clearInterval(interval);
 	});
-	
+
 	onDestroy(() => {
 		if (ws) {
 			ws.close();
 		}
 	});
-	
+
 	function getMessageClass(type: string) {
 		switch (type) {
 			case 'user':
@@ -222,7 +222,7 @@
 					{/if}
 				</Card.CardContent>
 			</Card.Card>
-			
+
 			<!-- Chat Interface -->
 			<Card.Card class="flex flex-col">
 				<Card.CardHeader>
@@ -256,7 +256,7 @@
 							</div>
 						{/each}
 					</div>
-					
+
 					<!-- Input -->
 					<div class="border-t p-4">
 						<div class="flex gap-2">
@@ -279,7 +279,7 @@
 				</Card.CardContent>
 			</Card.Card>
 		</div>
-		
+
 		<!-- Session Info -->
 		<div class="mt-6">
 			<Card.Card>
