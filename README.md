@@ -1,6 +1,6 @@
 # OttoBot
 
-OttoBot is an interactive coding agent platform where users create persistent coding sessions, interact with an AI agent via WebSocket chat, and watch the agent work in real-time through VNC.
+OttoBot is an interactive coding agent platform where users create persistent coding sessions, interact with an AI agent via WebSocket chat, and watch the agent work in real-time through VNC. The agent executes development tasks securely through the Model Context Protocol (MCP).
 
 ## Features
 
@@ -8,16 +8,26 @@ OttoBot is an interactive coding agent platform where users create persistent co
 - **Real-time VNC Access**: Watch the AI agent work in a full desktop environment
 - **WebSocket Chat**: Communicate with the agent in real-time
 - **Container Isolation**: Each session runs in its own Docker container
+- **MCP Architecture**: Secure tool execution via Model Context Protocol
 - **Horizontal Scalability**: Multiple worker processes for handling concurrent sessions
 - **File Downloads**: Package and download completed projects
 
 ## Architecture
 
 ```
-User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + LangGraph)
-              ↓                     ↓
-           Redis Queue        Docker + WebSocket
+User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + MCP Server)
+              ↓                     ↓                      ↓
+           Redis Queue        Docker + Port Allocation    MCP Tools (File I/O, Commands, VS Code)
+                                     ↓
+                              LangGraph Agent ← HTTP → MCP Server (Development Tools)
 ```
+
+### MCP (Model Context Protocol) Architecture
+
+- **Secure Tool Execution**: Agent brain runs in worker, tools execute in isolated container
+- **HTTP Communication**: Agent connects to container's MCP server via allocated ports
+- **Tool Isolation**: File operations, command execution, and VS Code access happen in container
+- **Dynamic Port Allocation**: Each session gets dedicated VNC (6080-6200) and MCP (8080-8200) ports
 
 ## Tech Stack
 
@@ -25,7 +35,8 @@ User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + La
 - **API Framework**: Elysia with WebSocket support
 - **Queue**: BullMQ + Redis
 - **AI Agent**: LangGraph + Anthropic Claude
-- **Containers**: Docker with VNC access
+- **Containers**: Docker with VNC access + MCP server
+- **MCP**: Model Context Protocol for secure agent-container communication
 - **Development Environment**: Ubuntu + VSCode + full dev tools
 
 ## Quick Start
@@ -165,20 +176,23 @@ See `.env.example` for all configuration options:
 
 1. User creates session via POST /session
 2. Session assigned to worker using consistent hashing
-3. Worker creates Docker container with VNC
-4. Agent starts and processes initial prompt
-5. User connects via WebSocket and VNC
-6. Agent executes tasks, visible through VNC
-7. User downloads artifacts when complete
-8. Session auto-terminates after timeout
+3. Worker allocates VNC and MCP ports
+4. Worker creates Docker container with VNC + MCP server
+5. Agent connects to container's MCP server for tool execution
+6. Agent starts and processes initial prompt
+7. User connects via WebSocket and VNC
+8. Agent executes tasks via MCP, visible through VNC
+9. User downloads artifacts when complete
+10. Session auto-terminates after timeout, ports released
 
 ### Components
 
 - **API Server**: Handles HTTP/WebSocket requests, session management
-- **Workers**: Manage Docker containers and agent processes
-- **Redis**: Session state, job queue, message routing
-- **Agent**: LangGraph-based AI that executes coding tasks
-- **Containers**: Isolated Ubuntu environments with full dev tools
+- **Workers**: Manage Docker containers, port allocation, and agent processes
+- **Redis**: Session state, job queue, message routing, port allocation
+- **Agent**: LangGraph-based AI that connects to containers via MCP
+- **MCP Server**: Provides secure development tools within containers
+- **Containers**: Isolated Ubuntu environments with VNC + MCP server + full dev tools
 
 ## Development
 
@@ -189,6 +203,7 @@ src/
 ├── api/           # Elysia API server
 ├── worker/        # BullMQ worker processes
 ├── agent/         # LangGraph coding agent
+├── mcp/           # Model Context Protocol (server & client)
 ├── shared/        # Shared types and utilities
 └── index.ts       # Entry point
 ```

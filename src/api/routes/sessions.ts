@@ -242,6 +242,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
             data: {
               containerId: session.containerId,
               vncPort: session.vncPort,
+              mcpPort: session.mcpPort,
             },
           },
           {

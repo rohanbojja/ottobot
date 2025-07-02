@@ -22,23 +22,34 @@ export class SessionHandler {
     const { sessionId, data } = job.data;
     const { initialPrompt, environment, vncPort } = data;
 
+    let mcpPort: number | null = null;
+
     try {
       // Update session with worker assignment
       await SessionManager.updateSession(sessionId, { workerId: this.workerId });
       
       // Log progress
       await job.updateProgress(10);
-      await SessionManager.addSessionLog(sessionId, 'info', 'Creating container...');
+      await SessionManager.addSessionLog(sessionId, 'info', 'Allocating MCP port...');
+
+      // Allocate MCP port
+      mcpPort = await SessionManager.allocateMcpPort();
+      if (!mcpPort) {
+        throw new Error('No available MCP ports');
+      }
+
+      await SessionManager.addSessionLog(sessionId, 'info', `Allocated MCP port ${mcpPort}, creating container...`);
 
       // Create container
       const containerId = await this.containerManager.createContainer({
         sessionId,
         environment,
         vncPort,
+        mcpPort,
       });
 
       await job.updateProgress(30);
-      await SessionManager.updateSession(sessionId, { containerId });
+      await SessionManager.updateSession(sessionId, { containerId, mcpPort });
       await SessionManager.addSessionLog(sessionId, 'info', 'Starting container...');
 
       // Start container
@@ -53,8 +64,8 @@ export class SessionHandler {
       await job.updateProgress(70);
       await SessionManager.addSessionLog(sessionId, 'info', 'Starting AI agent...');
 
-      // Start agent
-      await this.startAgent(sessionId, containerId, initialPrompt);
+      // Start agent with the pre-allocated MCP port
+      await this.startAgent(sessionId, containerId, initialPrompt, mcpPort);
       
       await job.updateProgress(90);
       
@@ -98,6 +109,11 @@ export class SessionHandler {
         if (vncPort) {
           await SessionManager.releaseVncPort(vncPort);
         }
+
+        // Release MCP port
+        if (mcpPort) {
+          await SessionManager.releaseMcpPort(mcpPort);
+        }
         
         // Remove session entirely
         await SessionManager.deleteSession(sessionId);
@@ -111,7 +127,7 @@ export class SessionHandler {
 
   async terminateSession(job: Job<WorkerJob>): Promise<void> {
     const { sessionId, data } = job.data;
-    const { containerId, vncPort } = data;
+    const { containerId, vncPort, mcpPort } = data;
 
     try {
       await SessionManager.addSessionLog(sessionId, 'info', 'Terminating session...');
@@ -148,6 +164,11 @@ export class SessionHandler {
       // Release VNC port
       if (vncPort) {
         await SessionManager.releaseVncPort(vncPort);
+      }
+
+      // Release MCP port
+      if (mcpPort) {
+        await SessionManager.releaseMcpPort(mcpPort);
       }
 
       // Update session status
@@ -210,16 +231,16 @@ export class SessionHandler {
     }
   }
 
-  private async startAgent(sessionId: string, containerId: string, initialPrompt: string): Promise<void> {
-    logger.info(`Starting agent for session ${sessionId} (container: ${containerId}) with prompt: ${initialPrompt}`);
-    const mcpPort = "8080";
+  private async startAgent(sessionId: string, containerId: string, initialPrompt: string, mcpPort: number): Promise<void> {
+    logger.info(`Starting agent for session ${sessionId} (container: ${containerId}) with MCP port ${mcpPort} and prompt: ${initialPrompt}`);
+    
     const onMessage = async (message: ChatMessage) => {
       await SessionRouter.publish(sessionId, message);
       await SessionManager.addSessionMessage(sessionId, message);
     };
 
-    // Create and initialize agent with MCP client configured for localhost and dynamic port
-    const agent = new CodingAgent(sessionId, onMessage, 'localhost', parseInt(mcpPort));
+    // Create and initialize agent with MCP client configured for localhost and allocated port
+    const agent = new CodingAgent(sessionId, onMessage, 'localhost', mcpPort);
     this.activeAgents.set(sessionId, agent);
 
     // Initialize with initial prompt

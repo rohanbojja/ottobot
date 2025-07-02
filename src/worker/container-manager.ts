@@ -16,8 +16,9 @@ export class ContainerManager {
     sessionId: string;
     environment: string;
     vncPort: number;
+    mcpPort?: number;
   }): Promise<string> {
-    const { sessionId, environment, vncPort } = options;
+    const { sessionId, environment, vncPort, mcpPort } = options;
 
     try {
       // Build container configuration
@@ -29,8 +30,9 @@ export class ContainerManager {
           `SESSION_ID=${sessionId}`,
           `ENVIRONMENT=${environment}`,
           `ANTHROPIC_API_KEY=${CONFIG.agent.anthropicApiKey}`,
-          `VNC_PORT=${vncPort}`,
-          `NOVNC_PORT=${vncPort}`,
+          `VNC_PORT=5901`,
+          `NOVNC_PORT=6080`,
+          `MCP_PORT=${mcpPort || 8080}`,
         ],
         HostConfig: {
           Memory: this.parseMemoryLimit(CONFIG.container.memoryLimit),
@@ -39,7 +41,7 @@ export class ContainerManager {
           NetworkMode: "bridge", // Use bridge network for proper port mapping
           PortBindings: {
             "6080/tcp": [{ HostPort: vncPort.toString() }],
-            "8080/tcp": [{ HostPort: "0" }], // Let Docker assign a random port for MCP
+            "8080/tcp": [{ HostPort: mcpPort ? mcpPort.toString() : "0" }], // Use specific port or let Docker assign
           },
           Binds: [`/tmp/ottobot-session-data/${sessionId}:/home/developer/workspace`],
           SecurityOpt: ["no-new-privileges"],
@@ -291,6 +293,26 @@ export class ContainerManager {
       return await container.inspect();
     } catch (error) {
       logger.error(`Failed to get container info for ${containerId}:`, error);
+      return null;
+    }
+  }
+
+  async getMcpPort(containerId: string): Promise<number | null> {
+    try {
+      const info = await this.getContainerInfo(containerId);
+      if (!info?.NetworkSettings?.Ports) {
+        return null;
+      }
+
+      const mcpPortBinding = info.NetworkSettings.Ports['8080/tcp'];
+      if (mcpPortBinding && mcpPortBinding.length > 0) {
+        const hostPort = mcpPortBinding[0].HostPort;
+        return hostPort ? parseInt(hostPort, 10) : null;
+      }
+
+      return null;
+    } catch (error) {
+      logger.error(`Failed to get MCP port for container ${containerId}:`, error);
       return null;
     }
   }

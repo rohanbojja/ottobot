@@ -45,6 +45,8 @@ export const CONFIG = {
     cpuLimit: parseFloat(process.env.CONTAINER_CPU_LIMIT || "1"),
     vncPortRangeStart: parseInt(process.env.VNC_PORT_RANGE_START || "6080", 10),
     vncPortRangeEnd: parseInt(process.env.VNC_PORT_RANGE_END || "6200", 10),
+    mcpPortRangeStart: parseInt(process.env.MCP_PORT_RANGE_START || "8080", 10),
+    mcpPortRangeEnd: parseInt(process.env.MCP_PORT_RANGE_END || "8200", 10),
     network: process.env.CONTAINER_NETWORK || "ottobot-network",
     agentImage: process.env.AGENT_IMAGE || "ottobot-mock-agent",
   },
@@ -77,6 +79,10 @@ export function validateConfig(): void {
 
   if (CONFIG.container.vncPortRangeEnd <= CONFIG.container.vncPortRangeStart) {
     errors.push("VNC_PORT_RANGE_END must be greater than VNC_PORT_RANGE_START");
+  }
+
+  if (CONFIG.container.mcpPortRangeEnd <= CONFIG.container.mcpPortRangeStart) {
+    errors.push("MCP_PORT_RANGE_END must be greater than MCP_PORT_RANGE_START");
   }
 
   if (errors.length > 0) {

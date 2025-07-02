@@ -13,10 +13,21 @@ OttoBot is an interactive coding agent platform that allows users to:
 ## Architecture Summary
 
 ```
-User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + LangGraph)
-              ↓                     ↓
-           Redis Queue        Docker + WebSocket
+User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + MCP Server)
+              ↓                     ↓                      ↓
+           Redis Queue        Docker + Port Allocation    MCP Tools (File I/O, Commands, VS Code)
+                                     ↓
+                              LangGraph Agent ← HTTP → MCP Server (Development Tools)
 ```
+
+### MCP Architecture
+
+The coding agent now uses the **Model Context Protocol (MCP)** for secure tool execution:
+
+- **MCP Server**: Runs inside each container on allocated ports (8080-8200 range)
+- **Agent Brain**: Runs in worker process, connects to container's MCP server via HTTP
+- **Tool Isolation**: All file operations, command execution, and VS Code interactions happen in the isolated container
+- **Security**: Agent can only interact with container through well-defined MCP protocol
 
 ## Key Technologies
 
@@ -26,8 +37,9 @@ User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + La
 - **Frontend**: SvelteKit with TanStack Query and shadcn-svelte
 - **Queue**: BullMQ with Redis
 - **AI**: LangGraph (TypeScript) + Anthropic Claude
-- **Containers**: Docker with VNC access via noVNC
+- **Containers**: Docker with VNC access via noVNC + MCP server for tool execution
 - **WebSocket**: Real-time communication with pub/sub via Redis
+- **MCP**: Model Context Protocol for secure agent-container interaction
 
 ## Development Commands
 
@@ -72,8 +84,11 @@ src/
 │   └── container-manager.ts # Docker operations
 ├── agent/        # LangGraph agent code
 │   ├── coding-agent.ts # Main agent logic
-│   ├── tools.ts  # Agent tool implementations
+│   ├── tools.ts  # Agent tool implementations (deprecated - use MCP)
 │   └── context-manager.ts # Token management
+├── mcp/          # Model Context Protocol code
+│   ├── server.ts # MCP server with development tools
+│   └── client.ts # MCP client for agent communication
 ├── shared/       # Shared code
 │   ├── types.ts  # TypeScript interfaces
 │   ├── schemas/  # Elysia validation schemas (health, session, websocket)
@@ -189,16 +204,55 @@ export function createSessionQuery(sessionId: string) {
 }
 ```
 
+### MCP Server Tools
+
+The MCP server provides secure development tools to the agent:
+
+```typescript
+// Available MCP tools in containers:
+- read_file: Read file contents safely within workspace
+- write_file: Write files with directory creation
+- list_files: List directory contents with file types
+- execute_command: Run shell commands with timeout protection
+- create_directory: Create directories recursively
+- delete_file: Delete files/directories safely
+- open_vscode: Open files/directories in VS Code
+```
+
+### MCP Client Usage
+
+```typescript
+// In the agent (src/agent/coding-agent.ts)
+import { MCPClient } from '@/mcp/client';
+
+// Client connects to container's MCP server
+const mcpClient = new MCPClient('localhost', mcpPort);
+await mcpClient.connect();
+
+// Execute tools through MCP
+const result = await mcpClient.readFile('/home/developer/workspace/app.js');
+const commandResult = await mcpClient.executeCommand('npm install');
+```
+
+### Port Allocation
+
+- **VNC Ports**: 6080-6200 (configurable via VNC_PORT_RANGE_START/END)
+- **MCP Ports**: 8080-8200 (configurable via MCP_PORT_RANGE_START/END)
+- **Port Management**: Redis-based allocation with TTL expiry (2 hours)
+- **Container Binding**: Each container gets dedicated VNC + MCP port pair
+
 ## Important Considerations
 
 1. **Container Security**: 
    - Containers run with limited resources (2GB RAM, 1 CPU)
    - Use non-root user (developer) in containers
    - Network isolation between sessions
+   - MCP server provides controlled tool access within container boundaries
 
 2. **Session Management**:
    - Sessions expire after timeout (default 1 hour)
    - VNC ports are dynamically allocated (6080-6200)
+   - MCP ports are dynamically allocated (8080-8200)
    - Use consistent hashing for worker assignment
 
 3. **WebSocket Communication**:
@@ -301,5 +355,9 @@ The complete session creation and interaction flow:
 - Use bun always
 - Frontend API client generated from OpenAPI with `bun generate:api`
 - VNC URLs use localhost with dynamically allocated ports (6080-6200)
+- MCP servers use localhost with dynamically allocated ports (8080-8200)
 - Session status flows: initializing → ready → running → terminated
 - WebSocket messages handled through SessionRouter for cross-process communication
+- Agent brain runs in worker process, tool execution in container via MCP
+- Container startup: allocate ports → create container → start → wait for VNC → start agent with MCP connection
+- Each session gets dedicated port pair: VNC for UI access, MCP for agent tools

@@ -58,6 +58,15 @@ export class CodingAgent {
     }
   }
 
+  private async getToolDescriptions(): Promise<string> {
+    const tools = await this.getMCPTools();
+    return tools.map(tool => {
+      const params = tool.inputSchema?.properties ? 
+        Object.keys(tool.inputSchema.properties).join(', ') : 'none';
+      return `- ${tool.name}: ${tool.description} (params: ${params})`;
+    }).join('\n');
+  }
+
   private buildGraph() {
     // Create a simple state graph
     const workflow = new StateGraph<AgentState>({
@@ -124,10 +133,22 @@ export class CodingAgent {
     const planningPrompt = `
 Task: ${state.currentTask}
 
-Create a step-by-step plan to accomplish this task.
-Consider the current context and available tools.
-Be specific about what needs to be done.
-Format your response as a numbered list of steps.`;
+Create a step-by-step plan to accomplish this task using the available MCP tools.
+For each step that requires a tool, specify:
+1. The tool name
+2. The exact parameters needed
+3. What you expect to accomplish
+
+Available tools and their capabilities:
+${await this.getToolDescriptions()}
+
+Format your response as:
+1. Step description
+   Tool: tool_name
+   Params: {"param1": "value1", "param2": "value2"}
+2. Next step...
+
+Be specific and actionable.`;
 
     const response = await this.llm.invoke([
       new SystemMessage(systemPrompt),
@@ -135,7 +156,7 @@ Format your response as a numbered list of steps.`;
     ]);
 
     const plan = response.content;
-    await this.emitEvent('agent_thinking', `Plan created: ${plan.slice(0, 200)}...`);
+    await this.emitEvent('agent_thinking', `Plan created: ${plan.toString().slice(0, 300)}...`);
 
     return {
       ...state,
@@ -262,41 +283,99 @@ Be concise but thorough.`;
 
   private async buildSystemPrompt(state: AgentState): Promise<string> {
     const tools = await this.getMCPTools();
-    const toolList = tools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n');
+    const toolList = tools.map(tool => {
+      const params = tool.inputSchema?.properties ? 
+        Object.keys(tool.inputSchema.properties).map(key => {
+          const prop = tool.inputSchema.properties[key];
+          const required = tool.inputSchema.required?.includes(key) ? ' (required)' : ' (optional)';
+          return `    ${key}: ${prop.description || 'string'}${required}`;
+        }).join('\n') : '    (no parameters)';
+      return `- ${tool.name}: ${tool.description}\n${params}`;
+    }).join('\n\n');
     
     return `You are an expert coding assistant working in an interactive development environment.
 
-Session ID: ${state.sessionId}
-Working Directory: ${state.workingDirectory}
+## Environment Details
+- Session ID: ${state.sessionId}
+- Working Directory: ${state.workingDirectory}
+- Container: Ubuntu 22.04 with VS Code, Node.js, Bun, Python
+- All actions are visible via VNC in real-time
 
-Available tools:
+## Available MCP Tools
 ${toolList}
 
-Context:
+## Current Context
 ${JSON.stringify(state.context, null, 2)}
 
-Be helpful, thorough, and proactive in accomplishing the user's goals.
-When executing tools, always provide the exact parameters needed.
-All tool executions happen in the container and are visible to the user via VNC.`;
+## Instructions
+1. Be helpful, thorough, and proactive
+2. When planning actions, use the exact format specified for tool calls
+3. All file operations happen in the container's workspace (/home/developer/workspace)
+4. You can execute shell commands, read/write files, create directories, and open VS Code
+5. Always verify your actions and provide clear explanations
+6. If you need to use a tool, format it exactly as: "Tool: tool_name" followed by "Params: {JSON object}"
+
+Remember: This is a live development environment where the user can see all your actions!`;
   }
 
   private extractNextAction(state: AgentState): { tool: string; params: any } | null {
     // Look for tool calls in recent AI messages
-    const recentMessages = state.messages.slice(-5);
+    const recentMessages = state.messages.slice(-3);
     
     for (const msg of recentMessages) {
       if (msg instanceof AIMessage) {
-        // Simple pattern matching for tool calls
-        // In production, use proper tool calling with the LLM
-        const toolMatch = msg.content.match(/Tool: (\w+)\nParams: ({.*})/s);
-        if (toolMatch) {
+        const content = msg.content.toString();
+        
+        // Enhanced pattern matching for tool calls
+        // Look for "Tool: tool_name" followed by "Params: {...}"
+        const toolRegex = /Tool:\s*(\w+)\s*(?:\n|\r\n?)\s*Params:\s*(\{[^}]*\})/gm;
+        const match = toolRegex.exec(content);
+        
+        if (match) {
           try {
+            const toolName = match[1].trim();
+            const paramsStr = match[2].trim();
+            const params = JSON.parse(paramsStr);
+            
+            logger.info(`Extracted tool action: ${toolName}`, { params });
             return {
-              tool: toolMatch[1],
-              params: JSON.parse(toolMatch[2]),
+              tool: toolName,
+              params: params,
             };
           } catch (e) {
             logger.error('Failed to parse tool params:', e);
+          }
+        }
+        
+        // Fallback: Look for common tool patterns
+        if (content.includes('read_file') && content.includes('path')) {
+          const pathMatch = content.match(/path[:\s]*["']([^"']+)["']/i);
+          if (pathMatch) {
+            return {
+              tool: 'read_file',
+              params: { path: pathMatch[1] }
+            };
+          }
+        }
+        
+        if (content.includes('write_file') && content.includes('path')) {
+          const pathMatch = content.match(/path[:\s]*["']([^"']+)["']/i);
+          const contentMatch = content.match(/content[:\s]*["']([^"']+)["']/i);
+          if (pathMatch && contentMatch) {
+            return {
+              tool: 'write_file',
+              params: { path: pathMatch[1], content: contentMatch[1] }
+            };
+          }
+        }
+        
+        if (content.includes('execute_command') && content.includes('command')) {
+          const commandMatch = content.match(/command[:\s]*["']([^"']+)["']/i);
+          if (commandMatch) {
+            return {
+              tool: 'execute_command',
+              params: { command: commandMatch[1] }
+            };
           }
         }
       }

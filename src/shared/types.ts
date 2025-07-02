@@ -7,6 +7,7 @@ export interface Session {
   containerId?: string;
   vncUrl?: string;
   vncPort?: number;
+  mcpPort?: number;
   workerId?: string;
   createdAt: Date;
   updatedAt: Date;

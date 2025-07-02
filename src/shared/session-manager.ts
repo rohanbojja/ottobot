@@ -229,6 +229,29 @@ export class SessionManager {
     await redis.del(`vnc:port:${port}`);
   }
 
+  // Allocate MCP port
+  static async allocateMcpPort(): Promise<number | null> {
+    const start = CONFIG.container.mcpPortRangeStart;
+    const end = CONFIG.container.mcpPortRangeEnd;
+
+    for (let port = start; port <= end; port++) {
+      const allocated = await redis.setnx(`mcp:port:${port}`, "1");
+      if (allocated) {
+        // Set expiry to prevent leaks
+        await redis.expire(`mcp:port:${port}`, 7200); // 2 hours
+        return port;
+      }
+    }
+
+    logger.error("No available MCP ports");
+    return null;
+  }
+
+  // Release MCP port
+  static async releaseMcpPort(port: number): Promise<void> {
+    await redis.del(`mcp:port:${port}`);
+  }
+
   // Session context management
   static async getSessionContext(sessionId: string): Promise<string | null> {
     return redis.get(`session:context:${sessionId}`);
