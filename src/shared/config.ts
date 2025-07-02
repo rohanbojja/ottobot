@@ -30,8 +30,8 @@ export const CONFIG = {
 
   // Agent Configuration
   agent: {
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
-    model: process.env.LLM_MODEL || "claude-3-sonnet-20240229",
+    geminiApiKey: process.env.GEMINI_API_KEY || "",
+    model: process.env.LLM_MODEL || "gemini-1.5-flash",
     contextWindowSize: parseInt(
       process.env.CONTEXT_WINDOW_SIZE || "100000",
       10,
@@ -72,9 +72,9 @@ export const CONFIG = {
 export function validateConfig(): void {
   const errors: string[] = [];
 
-  // Only require ANTHROPIC_API_KEY if not using mock agent
-  if (!CONFIG.agent.anthropicApiKey && !process.env.AGENT_IMAGE) {
-    errors.push("ANTHROPIC_API_KEY is required when using real agent");
+  // Only require GEMINI_API_KEY if not using mock agent
+  if (!CONFIG.agent.geminiApiKey && !process.env.AGENT_IMAGE) {
+    errors.push("GEMINI_API_KEY is required when using real agent");
   }
 
   if (CONFIG.container.vncPortRangeEnd <= CONFIG.container.vncPortRangeStart) {

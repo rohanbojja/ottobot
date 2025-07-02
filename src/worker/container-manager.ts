@@ -29,10 +29,10 @@ export class ContainerManager {
         Env: [
           `SESSION_ID=${sessionId}`,
           `ENVIRONMENT=${environment}`,
-          `ANTHROPIC_API_KEY=${CONFIG.agent.anthropicApiKey}`,
+          `GEMINI_API_KEY=${CONFIG.agent.geminiApiKey}`,
           `VNC_PORT=5901`,
           `NOVNC_PORT=6080`,
-          `MCP_PORT=${mcpPort || 8080}`,
+          `MCP_PORT=8080`,
         ],
         HostConfig: {
           Memory: this.parseMemoryLimit(CONFIG.container.memoryLimit),

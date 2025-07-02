@@ -34,7 +34,7 @@ User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + MC
 - **Runtime**: Bun + TypeScript
 - **API Framework**: Elysia with WebSocket support
 - **Queue**: BullMQ + Redis
-- **AI Agent**: LangGraph + Anthropic Claude
+- **AI Agent**: LangGraph + Google Gemini
 - **Containers**: Docker with VNC access + MCP server
 - **MCP**: Model Context Protocol for secure agent-container communication
 - **Development Environment**: Ubuntu + VSCode + full dev tools
@@ -46,7 +46,7 @@ User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + MC
 - Docker and Docker Compose
 - Bun runtime
 - Redis (or use Docker Compose)
-- Anthropic API key
+- Google Gemini API key
 
 ### Installation
 
@@ -68,7 +68,7 @@ cp .env.example .env
 
 4. Configure your `.env` file:
 ```env
-ANTHROPIC_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_api_key_here
 ```
 
 ### Running with Docker Compose
