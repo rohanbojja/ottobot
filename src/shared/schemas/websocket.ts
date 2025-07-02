@@ -1,4 +1,4 @@
-import { t } from 'elysia';
+import { t, Static } from 'elysia';
 
 export const UserMessageSchema = t.Object({
   type: t.Literal('user_prompt'),
@@ -11,6 +11,8 @@ export const UserMessageSchema = t.Object({
     description: 'Unix timestamp in milliseconds'
   })
 });
+
+export type UserMessageSchemaType = Static<typeof UserMessageSchema>;
 
 export const AgentMessageSchema = t.Object({
   type: t.Union([

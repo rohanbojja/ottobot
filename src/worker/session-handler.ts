@@ -212,15 +212,14 @@ export class SessionHandler {
 
   private async startAgent(sessionId: string, containerId: string, initialPrompt: string): Promise<void> {
     logger.info(`Starting agent for session ${sessionId} (container: ${containerId}) with prompt: ${initialPrompt}`);
-    
-    // Create message handler
+    const mcpPort = "8080";
     const onMessage = async (message: ChatMessage) => {
       await SessionRouter.publish(sessionId, message);
       await SessionManager.addSessionMessage(sessionId, message);
     };
 
-    // Create and initialize agent
-    const agent = new CodingAgent(sessionId, onMessage);
+    // Create and initialize agent with MCP client configured for localhost and dynamic port
+    const agent = new CodingAgent(sessionId, onMessage, 'localhost', parseInt(mcpPort));
     this.activeAgents.set(sessionId, agent);
 
     // Initialize with initial prompt

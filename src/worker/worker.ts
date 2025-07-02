@@ -11,6 +11,7 @@ export class AgentWorker {
   private worker: Worker<WorkerJob>;
   private sessionHandler: SessionHandler;
   private workerId: string;
+  private heartbeatInterval?: NodeJS.Timeout;
 
   constructor(workerId: string) {
     this.workerId = workerId;
@@ -61,6 +62,7 @@ export class AgentWorker {
     this.worker.on('ready', () => {
       logger.info(`Worker ${this.workerId} is ready`);
       this.updateWorkerStatus('active');
+      this.startHeartbeat();
     });
 
     this.worker.on('error', (error) => {
@@ -89,6 +91,12 @@ export class AgentWorker {
 
   private async shutdown(): Promise<void> {
     logger.info(`Shutting down worker ${this.workerId}`);
+    
+    // Stop heartbeat
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+    
     await this.updateWorkerStatus('stopping');
     
     // Close worker gracefully
@@ -101,11 +109,56 @@ export class AgentWorker {
     process.exit(0);
   }
 
+  private startHeartbeat(): void {
+    // Send heartbeat every 60 seconds to refresh TTL
+    this.heartbeatInterval = setInterval(async () => {
+      try {
+        await this.refreshWorkerTTL();
+      } catch (error) {
+        logger.error(`Worker ${this.workerId} heartbeat failed:`, error);
+      }
+    }, 60000); // 1 minute
+  }
+
+  private async refreshWorkerTTL(): Promise<void> {
+    const redis = createRedisConnection();
+    
+    try {
+      // Only refresh if the key exists (worker is still active)
+      const exists = await redis.exists(`worker:${this.workerId}:status`);
+      if (exists) {
+        await redis.expire(`worker:${this.workerId}:status`, 300); // 5 minutes TTL
+        await redis.expire(`worker:${this.workerId}:jobs`, 300); // Same TTL
+      }
+    } finally {
+      await redis.quit();
+    }
+  }
+
   private async updateWorkerStatus(status: string): Promise<void> {
     const redis = createRedisConnection();
-    await redis.set(`worker:${this.workerId}:status`, status);
-    await redis.expire(`worker:${this.workerId}:status`, 300); // 5 minutes TTL
-    await redis.quit();
+    
+    try {
+      if (status === 'stopped') {
+        // When stopping, remove the worker entirely
+        await redis.del(`worker:${this.workerId}:status`);
+        await redis.del(`worker:${this.workerId}:jobs`);
+        logger.info(`Worker ${this.workerId} deregistered from Redis`);
+      } else {
+        // Set status with TTL
+        await redis.set(`worker:${this.workerId}:status`, status);
+        await redis.expire(`worker:${this.workerId}:status`, 300); // 5 minutes TTL
+        
+        // Also initialize jobs set if it doesn't exist
+        if (status === 'active') {
+          await redis.sadd(`worker:${this.workerId}:jobs`, ''); // Ensure set exists
+          await redis.srem(`worker:${this.workerId}:jobs`, ''); // Remove the dummy entry
+          await redis.expire(`worker:${this.workerId}:jobs`, 300); // Same TTL
+        }
+      }
+    } finally {
+      await redis.quit();
+    }
   }
 }
 

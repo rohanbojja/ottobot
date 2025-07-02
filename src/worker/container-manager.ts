@@ -23,7 +23,7 @@ export class ContainerManager {
       // Build container configuration
       const config: Docker.ContainerCreateOptions = {
         name: `ottobot-${sessionId}`,
-        Image: CONFIG.container.agentImage || "ottobot-mock-agent",
+        Image: CONFIG.container.agentImage || "ottobot-dev-agent",
         Hostname: sessionId,
         Env: [
           `SESSION_ID=${sessionId}`,
@@ -39,6 +39,7 @@ export class ContainerManager {
           NetworkMode: "bridge", // Use bridge network for proper port mapping
           PortBindings: {
             "6080/tcp": [{ HostPort: vncPort.toString() }],
+            "8080/tcp": [{ HostPort: "0" }], // Let Docker assign a random port for MCP
           },
           Binds: [`/tmp/ottobot-session-data/${sessionId}:/home/developer/workspace`],
           SecurityOpt: ["no-new-privileges"],
@@ -47,6 +48,7 @@ export class ContainerManager {
         ExposedPorts: {
           "5901/tcp": {},
           "6080/tcp": {},
+          "8080/tcp": {}, // MCP server port
         },
         WorkingDir: "/home/developer/workspace",
         User: "developer",
@@ -280,6 +282,16 @@ export class ContainerManager {
     } catch (error) {
       logger.error("Failed to list containers:", error);
       throw error;
+    }
+  }
+
+  async getContainerInfo(containerId: string): Promise<Docker.ContainerInspectInfo | null> {
+    try {
+      const container = this.docker.getContainer(containerId);
+      return await container.inspect();
+    } catch (error) {
+      logger.error(`Failed to get container info for ${containerId}:`, error);
+      return null;
     }
   }
 

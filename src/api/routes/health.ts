@@ -30,12 +30,14 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
         logger.error('Docker health check failed:', error);
       }
 
-      // Count active workers
+      // Count active workers (exclude expired keys)
       const workerKeys = await redis.keys('worker:*:status');
       let activeWorkers = 0;
       for (const key of workerKeys) {
         const status = await redis.get(key);
-        if (status === 'active') activeWorkers++;
+        const ttl = await redis.ttl(key);
+        // Only count as active if status is active and key hasn't expired
+        if (status === 'active' && ttl > 0) activeWorkers++;
       }
 
       // Determine overall health status
@@ -95,21 +97,26 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
       const queueStatus = await queue.getJobCounts();
       const queueLength = queueStatus.waiting + queueStatus.active;
 
-      // Get worker status
+      // Get worker status (exclude expired workers)
       const workerKeys = await redis.keys('worker:*:status');
       const workerStatus = [];
       
       for (const key of workerKeys) {
         const workerId = key.split(':')[1];
         const status = await redis.get(key);
-        const jobsKey = `worker:${workerId}:jobs`;
-        const jobs = await redis.scard(jobsKey);
+        const ttl = await redis.ttl(key);
         
-        workerStatus.push({
-          id: workerId,
-          active: status === 'active',
-          current_jobs: jobs,
-        });
+        // Only include workers that haven't expired
+        if (status && ttl > 0) {
+          const jobsKey = `worker:${workerId}:jobs`;
+          const jobs = await redis.scard(jobsKey);
+          
+          workerStatus.push({
+            id: workerId,
+            active: status === 'active',
+            current_jobs: jobs,
+          });
+        }
       }
 
       return {

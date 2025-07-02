@@ -1,12 +1,11 @@
-import type { ElysiaWS } from 'elysia/ws';
-import { SessionManager } from '@/shared/session-manager';
-import { createLogger } from '@/shared/logger';
-import { UserMessageSchema } from '@/shared/schemas/websocket';
-import { JOB_NAMES } from '@/shared/queue';
-import { SessionRouter } from '@/shared/session-router';
-import type { ChatMessage } from '@/shared/types';
+import { SessionManager } from "@/shared/session-manager";
+import { createLogger } from "@/shared/logger";
+import { JOB_NAMES } from "@/shared/queue";
+import { SessionRouter } from "@/shared/session-router";
+import type { ChatMessage } from "@/shared/types";
+import { UserMessageSchemaType } from "@/shared/schemas/websocket";
 
-const logger = createLogger('websocket');
+const logger = createLogger("websocket");
 
 // Store active subscriptions
 const activeSubscriptions = new Map<any, () => void>();
@@ -17,11 +16,11 @@ export const chatWebSocketHandler = {
     logger.info(`WebSocket opened for session ${sessionId}`);
 
     // Validate session exists
-    SessionManager.getSession(sessionId).then(session => {
+    SessionManager.getSession(sessionId).then((session) => {
       if (!session) {
         ws.send({
-          type: 'error',
-          error: 'Session not found',
+          type: "error",
+          error: "Session not found",
           timestamp: Date.now(),
         });
         ws.close();
@@ -29,9 +28,9 @@ export const chatWebSocketHandler = {
       }
 
       // Check session status
-      if (session.status === 'terminated' || session.status === 'error') {
+      if (session.status === "terminated" || session.status === "error") {
         ws.send({
-          type: 'error',
+          type: "error",
           error: `Session is ${session.status}`,
           timestamp: Date.now(),
         });
@@ -40,21 +39,27 @@ export const chatWebSocketHandler = {
       }
 
       // Subscribe to session messages
-      const unsubscribe = SessionRouter.subscribe(sessionId, (message: ChatMessage) => {
-        try {
-          ws.send(message);
-        } catch (error) {
-          logger.error(`Failed to send message to WebSocket for session ${sessionId}:`, error);
-        }
-      });
-      
+      const unsubscribe = SessionRouter.subscribe(
+        sessionId,
+        (message: ChatMessage) => {
+          try {
+            ws.send(message);
+          } catch (error) {
+            logger.error(
+              `Failed to send message to WebSocket for session ${sessionId}:`,
+              error,
+            );
+          }
+        },
+      );
+
       // Store the unsubscribe function
       activeSubscriptions.set(ws, unsubscribe);
 
       // Send connection confirmation
       ws.send({
-        type: 'system_update',
-        content: 'Connected to session',
+        type: "system_update",
+        content: "Connected to session",
         timestamp: Date.now(),
         metadata: {
           session_status: session.status,
@@ -62,91 +67,103 @@ export const chatWebSocketHandler = {
       });
 
       // Send recent messages if any
-      SessionManager.getSessionMessages(sessionId, 50).then(recentMessages => {
-        for (const message of recentMessages) {
-          ws.send(message);
-        }
-      });
+      SessionManager.getSessionMessages(sessionId, 50).then(
+        (recentMessages) => {
+          for (const message of recentMessages) {
+            ws.send(message);
+          }
+        },
+      );
     });
   },
-  
-  message(ws: any, message: any) {
+
+  message(ws: any, parsedMessage: UserMessageSchemaType) {
     const sessionId = ws.data.params.id;
-    
+    console.log({
+      sessionId,
+      parsedMessage,
+    })
+
     try {
-      // Validate message format
-      const parsedMessage = UserMessageSchema.parse(message);
-      
       // Get session
-      SessionManager.getSession(sessionId).then(session => {
-        if (!session) {
+      SessionManager.getSession(sessionId)
+        .then((session) => {
+          if (!session) {
+            ws.send({
+              type: "error",
+              error: "Session not found",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+
+          // Check if session is ready
+          if (session.status !== "ready" && session.status !== "running") {
+            ws.send({
+              type: "error",
+              error: `Session is not ready (status: ${session.status})`,
+              timestamp: Date.now(),
+            });
+            return;
+          }
+
+          // Store message
+          SessionManager.addSessionMessage(sessionId, parsedMessage);
+
+          // Update session status
+          SessionManager.updateSessionStatus(sessionId, "running");
+
+          // Queue message for processing
+          const queue = ws.data.queue;
+          queue.add(
+            JOB_NAMES.processMessage,
+            {
+              type: "process_message",
+              sessionId,
+              data: {
+                message: parsedMessage,
+                workerId: session.workerId,
+              },
+            },
+            {
+              priority: 1,
+            },
+          );
+
+          // Send acknowledgment
           ws.send({
-            type: 'error',
-            error: 'Session not found',
+            type: "system_update",
+            content: "Message received and queued for processing",
             timestamp: Date.now(),
           });
-          return;
-        }
 
-        // Check if session is ready
-        if (session.status !== 'ready' && session.status !== 'running') {
+          logger.info(
+            `Message from session ${sessionId}:`,
+            parsedMessage.content,
+          );
+        })
+        .catch((error) => {
+          logger.error("Session handling error:", error);
           ws.send({
-            type: 'error',
-            error: `Session is not ready (status: ${session.status})`,
+            type: "error",
+            error: "Internal server error",
             timestamp: Date.now(),
           });
-          return;
-        }
-
-        // Store message
-        SessionManager.addSessionMessage(sessionId, parsedMessage);
-
-        // Update session status
-        SessionManager.updateSessionStatus(sessionId, 'running');
-
-        // Queue message for processing
-        const queue = ws.data.queue;
-        queue.add(JOB_NAMES.processMessage, {
-          type: 'process_message',
-          sessionId,
-          data: {
-            message: parsedMessage,
-            workerId: session.workerId,
-          },
-        }, {
-          priority: 1,
         });
-
-        // Send acknowledgment
-        ws.send({
-          type: 'system_update',
-          content: 'Message received and queued for processing',
-          timestamp: Date.now(),
-        });
-
-        logger.info(`Message from session ${sessionId}:`, parsedMessage.content);
-      }).catch(error => {
-        logger.error('Session handling error:', error);
-        ws.send({
-          type: 'error',
-          error: 'Internal server error',
-          timestamp: Date.now(),
-        });
-      });
     } catch (error) {
-      logger.error('WebSocket message error:', error);
+      logger.error("WebSocket message error:", error);
       ws.send({
-        type: 'error',
-        error: 'Invalid message format',
+        type: "error",
+        error: "Invalid message format",
         timestamp: Date.now(),
       });
     }
   },
-  
+
   close(ws: any) {
     const sessionId = ws.data.params.id;
     logger.info(`WebSocket closed for session ${sessionId}`);
-    
+
     // Unsubscribe from session messages
     const unsubscribe = activeSubscriptions.get(ws);
     if (unsubscribe) {
@@ -154,7 +171,7 @@ export const chatWebSocketHandler = {
       activeSubscriptions.delete(ws);
     }
   },
-  
+
   error(ws: any, error: Error) {
     const sessionId = ws.data.params.id;
     logger.error(`WebSocket error for session ${sessionId}:`, error);

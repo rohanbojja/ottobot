@@ -1,16 +1,17 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { onMount, onDestroy } from 'svelte';
-	import { createQuery } from '@tanstack/svelte-query';
-  import * as Card from "$lib/components/ui/card/index.js";
-	import { Button } from '$lib/components/ui/button';
+	import { page } from '$app/state';
 	import { getSessionById } from '$lib/api/queries';
-	import { Send, Terminal, Loader2, Maximize, ExternalLink } from '@lucide/svelte/icons';
+	import { Button } from '$lib/components/ui/button';
+	import * as Card from "$lib/components/ui/card/index.js";
+	import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
+	import { ExternalLink, Loader2, Send, Terminal } from '@lucide/svelte/icons';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { onDestroy, onMount } from 'svelte';
 
 	// Removed unused pageData props
 
 	// Session state
-	let sessionId = $derived($page.params.id);
+	let sessionId = $derived(page.params.id);
 
 	let chatInput = $state('');
 	let messages = $state<Array<{id: string, type: string, content: string, timestamp: string}>>([]);
@@ -20,7 +21,8 @@
 	let ws: WebSocket | null = null;
 	let vncLoaded = $state(false);
 	let reconnectTimeout: number | null = null;
-	
+	let chatContainer: HTMLElement;
+
 	// Chat scroll state
 	let isAtBottom = $state(true);
 	let showScrollButton = $state(false);
@@ -41,13 +43,13 @@
 	function connectWebSocket() {
 		if (!$sessionQuery.data?.chat_url) return;
 		if (isConnecting || isConnected) return; // Prevent multiple connections
-		
+
 		// Clear any pending reconnection timeout
 		if (reconnectTimeout) {
 			clearTimeout(reconnectTimeout);
 			reconnectTimeout = null;
 		}
-		
+
 		// Close existing connection if any
 		if (ws && ws.readyState !== WebSocket.CLOSED) {
 			console.log('Closing existing WebSocket connection');
@@ -63,15 +65,13 @@
 			isConnecting = false;
 			isConnected = true;
 			console.log('WebSocket connected successfully');
-			
+
 			// Clear old messages when reconnecting to prevent duplicates
 			if (messages.length > 0) {
 				console.log('Clearing old messages on reconnect');
 				messages = [];
 				messageIds.clear();
 			}
-			
-			addMessage('system', 'Connected to session');
 		};
 
 		ws.onmessage = (event) => {
@@ -95,11 +95,11 @@
 			isConnecting = false;
 			isConnected = false;
 			console.log('WebSocket closed:', event.code, event.reason);
-			
+
 			// Only show disconnect message if it wasn't a normal closure
 			if (event.code !== 1000) {
 				addMessage('system', 'Disconnected from session');
-				
+
 				// Only attempt to reconnect if session is still active and it was an unexpected disconnect
 				if ($sessionQuery.data?.status === 'ready' || $sessionQuery.data?.status === 'running') {
 					console.log('Attempting to reconnect in 5 seconds...');
@@ -114,7 +114,7 @@
 	function handleWebSocketMessage(message: any) {
 		// Create unique message ID based on timestamp and content
 		const messageId = `${message.type}-${message.timestamp}-${message.content?.substring(0, 10)}`;
-		
+
 		switch (message.type) {
 			case 'user_prompt':
 				addMessage('user', message.content, messageId);
@@ -146,13 +146,13 @@
 	function addMessage(type: string, content: string, messageId?: string) {
 		// Generate ID if not provided (for deduplication)
 		const id = messageId || `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-		
+
 		// Prevent duplicate messages
 		if (messageIds.has(id)) {
 			console.log('Skipping duplicate message:', id);
 			return;
 		}
-		
+
 		messageIds.add(id);
 		messages = [...messages, {
 			id,
@@ -160,7 +160,7 @@
 			content,
 			timestamp: new Date().toISOString()
 		}];
-		
+
 		// Auto-scroll to bottom only if user is at bottom
 		setTimeout(() => {
 			if (isAtBottom) {
@@ -181,33 +181,33 @@
 
 		const message = {
 			type: 'user_prompt',
-			content: chatInput.trim()
+			content: chatInput.trim(),
+			timestamp: Date.now(),
 		};
-		
+
 		console.log('Sending message:', message);
 		ws.send(JSON.stringify(message));
 
 		chatInput = '';
 	}
-	
+
 	// Scroll functions
 	function scrollToBottom() {
-		const chatContainer = document.getElementById('chat-messages');
 		if (chatContainer) {
 			chatContainer.scrollTop = chatContainer.scrollHeight;
 			isAtBottom = true;
 			showScrollButton = false;
 		}
 	}
-	
+
 	function handleScroll(event: Event) {
-		const chatContainer = event.target as HTMLElement;
+		const target = event.target as HTMLElement;
 		const threshold = 50; // pixels from bottom
-		
-		isAtBottom = chatContainer.scrollTop + chatContainer.clientHeight + threshold >= chatContainer.scrollHeight;
+
+		isAtBottom = target.scrollTop + target.clientHeight + threshold >= target.scrollHeight;
 		showScrollButton = !isAtBottom;
 	}
-	
+
 	// VNC fullscreen function
 	function openVncFullscreen() {
 		if ($sessionQuery.data?.vnc_url) {
@@ -216,7 +216,7 @@
 				'vnc-fullscreen',
 				'width=1920,height=1080,scrollbars=yes,resizable=yes,status=no,location=no,toolbar=no,menubar=no'
 			);
-			
+
 			if (vncWindow) {
 				vncWindow.focus();
 			} else {
@@ -315,18 +315,18 @@
 							<Terminal class="h-5 w-5" />
 							Development Environment
 						</Card.CardTitle>
-						
+
 						<!-- Fullscreen button -->
 						{#if $sessionQuery.data.vnc_url && ($sessionQuery.data.status === 'ready' || $sessionQuery.data.status === 'running')}
 							<div class="flex gap-2">
-								<Button.Button 
-									variant="outline" 
+								<Button
+									variant="outline"
 									size="sm"
-									on:click={openVncFullscreen}
+									onclick={openVncFullscreen}
 									title="Open in new window"
 								>
 									<ExternalLink class="h-4 w-4" />
-								</Button.Button>
+								</Button>
 							</div>
 						{/if}
 					</div>
@@ -380,69 +380,71 @@
 						{/if}
 					</Card.CardDescription>
 				</Card.CardHeader>
-				<Card.CardContent class="flex-1 flex flex-col p-0">
+				<Card.CardContent class="flex-1 flex flex-col p-0 max-h-[calc(100%-5rem)]">
 					<!-- Messages -->
 					<div class="flex-1 relative">
-						<div 
-							id="chat-messages" 
-							class="h-full overflow-y-auto p-4 space-y-2 scroll-smooth"
-							on:scroll={handleScroll}
-						>
-						{#if messages.length === 0}
-							<div class="text-center text-gray-500 py-8">
-								Start a conversation with the AI assistant
-							</div>
-						{/if}
-						{#each messages as message}
-							<div class={`group relative p-3 rounded-lg max-w-[85%] shadow-sm border ${getMessageClass(message.type)}`}>
-								<!-- Message type indicator -->
-								{#if message.type === 'user'}
-									<div class="text-xs font-medium text-blue-600 mb-1">You</div>
-								{:else if message.type === 'agent'}
-									<div class="text-xs font-medium text-gray-600 mb-1">AI Assistant</div>
-								{:else if message.type === 'thinking'}
-									<div class="text-xs font-medium text-yellow-600 mb-1">🤔 Thinking...</div>
-								{:else if message.type === 'action'}
-									<div class="text-xs font-medium text-green-600 mb-1">⚡ Action</div>
-								{:else if message.type === 'system'}
-									<div class="text-xs font-medium text-gray-500 mb-1">🔧 System</div>
-								{:else if message.type === 'error'}
-									<div class="text-xs font-medium text-red-600 mb-1">❌ Error</div>
+						<ScrollArea class="h-full" onscroll={handleScroll}>
+							<div
+								id="chat-messages"
+								class="p-4 space-y-2"
+								bind:this={chatContainer}
+							>
+								{#if messages.length === 0}
+									<div class="text-center text-gray-500 py-8">
+										Start a conversation with the AI assistant
+									</div>
 								{/if}
-								
-								<!-- Message content -->
-								{#if message.type === 'action'}
-									<pre class="whitespace-pre-wrap text-sm font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded border">{message.content}</pre>
-								{:else}
-									<p class="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
-								{/if}
-								
-								<!-- Timestamp -->
-								<div class="flex justify-between items-center mt-2 text-xs opacity-60">
-									<span class="group-hover:opacity-100 transition-opacity">
-										{new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-									</span>
-									{#if message.type === 'user'}
-										<span class="text-blue-500">→</span>
-									{:else if message.type === 'agent'}
-										<span class="text-gray-500">←</span>
-									{/if}
-								</div>
+								{#each messages as message}
+									<div class={`group relative p-3 rounded-lg max-w-[85%] shadow-sm border ${getMessageClass(message.type)}`}>
+										<!-- Message type indicator -->
+										{#if message.type === 'user'}
+											<div class="text-xs font-medium text-blue-600 mb-1">You</div>
+										{:else if message.type === 'agent'}
+											<div class="text-xs font-medium text-gray-600 mb-1">AI Assistant</div>
+										{:else if message.type === 'thinking'}
+											<div class="text-xs font-medium text-yellow-600 mb-1">🤔 Thinking...</div>
+										{:else if message.type === 'action'}
+											<div class="text-xs font-medium text-green-600 mb-1">⚡ Action</div>
+										{:else if message.type === 'system'}
+											<div class="text-xs font-medium text-gray-500 mb-1">🔧 System</div>
+										{:else if message.type === 'error'}
+											<div class="text-xs font-medium text-red-600 mb-1">❌ Error</div>
+										{/if}
+
+										<!-- Message content -->
+										{#if message.type === 'action'}
+											<pre class="whitespace-pre-wrap text-sm font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded border">{message.content}</pre>
+										{:else}
+											<p class="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+										{/if}
+
+										<!-- Timestamp -->
+										<div class="flex justify-between items-center mt-2 text-xs opacity-60">
+											<span class="group-hover:opacity-100 transition-opacity">
+												{new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+											</span>
+											{#if message.type === 'user'}
+												<span class="text-blue-500">→</span>
+											{:else if message.type === 'agent'}
+												<span class="text-gray-500">←</span>
+											{/if}
+										</div>
+									</div>
+								{/each}
 							</div>
-						{/each}
-						</div>
-						
+						</ScrollArea>
+
 						<!-- Scroll to bottom button -->
 						{#if showScrollButton}
-							<button 
+							<Button
 								class="absolute bottom-4 right-4 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
-								on:click={scrollToBottom}
+								onclick={scrollToBottom}
 								title="Scroll to bottom"
 							>
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
 								</svg>
-							</button>
+							</Button>
 						{/if}
 					</div>
 
@@ -456,13 +458,13 @@
 								class="flex-1 min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
 								disabled={!isConnected || $sessionQuery.data.status !== 'ready' && $sessionQuery.data.status !== 'running'}
 							/>
-							<Button.Button
+							<Button
 								onclick={sendMessage}
 								disabled={!isConnected || !chatInput.trim() || $sessionQuery.data.status !== 'ready' && $sessionQuery.data.status !== 'running'}
 								size="icon"
 							>
 								<Send class="h-4 w-4" />
-							</Button.Button>
+							</Button>
 						</div>
 					</div>
 				</Card.CardContent>

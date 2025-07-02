@@ -4,7 +4,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { createLogger } from '@/shared/logger';
 import { CONFIG } from '@/shared/config';
 import { ContextManager } from './context-manager';
-import * as tools from './tools';
+import { MCPClient } from '@/mcp/client';
 import type { ChatMessage } from '@/shared/types';
 
 const logger = createLogger('coding-agent');
@@ -24,12 +24,14 @@ export class CodingAgent {
   private llm: ChatAnthropic;
   private contextManager: ContextManager;
   private graph: any;
-  private tools: Record<string, any>;
+  private mcpClient: MCPClient;
   private onMessage: (message: ChatMessage) => Promise<void>;
 
   constructor(
     sessionId: string,
-    onMessage: (message: ChatMessage) => Promise<void>
+    onMessage: (message: ChatMessage) => Promise<void>,
+    containerHost: string = 'localhost',
+    containerPort: number = 8080
   ) {
     this.sessionId = sessionId;
     this.onMessage = onMessage;
@@ -42,23 +44,18 @@ export class CodingAgent {
     });
     
     this.contextManager = new ContextManager(sessionId);
-    this.tools = this.setupTools();
+    this.mcpClient = new MCPClient(containerHost, containerPort);
     this.graph = this.buildGraph();
   }
 
-  private setupTools() {
-    return {
-      bash_execute: tools.bashExecute,
-      file_write: tools.fileWrite,
-      file_read: tools.fileRead,
-      file_list: tools.fileList,
-      project_structure: tools.projectStructure,
-      git_operations: tools.gitOperations,
-      package_install: tools.packageInstall,
-      create_artifact: tools.createArtifact,
-      browser_open: tools.browserOpen,
-      process_monitor: tools.processMonitor,
-    };
+  private async getMCPTools() {
+    try {
+      await this.mcpClient.connect();
+      return await this.mcpClient.getAvailableTools();
+    } catch (error) {
+      logger.error('Failed to get MCP tools:', error);
+      return [];
+    }
   }
 
   private buildGraph() {
@@ -123,7 +120,7 @@ export class CodingAgent {
   private async plan(state: AgentState): Promise<AgentState> {
     await this.emitEvent('agent_thinking', 'Creating a plan...');
 
-    const systemPrompt = this.buildSystemPrompt(state);
+    const systemPrompt = await this.buildSystemPrompt(state);
     const planningPrompt = `
 Task: ${state.currentTask}
 
@@ -158,10 +155,10 @@ Format your response as a numbered list of steps.`;
     });
 
     try {
-      const toolFunc = this.tools[action.tool];
-      if (toolFunc) {
-        const result = await toolFunc(action.params);
-        
+      // Call tool via MCP client
+      const result = await this.mcpClient.callTool(action.tool, action.params);
+      
+      if (result.success) {
         await this.emitEvent('agent_action', `Completed: ${action.tool}`, {
           tool_used: action.tool,
         });
@@ -170,13 +167,13 @@ Format your response as a numbered list of steps.`;
           ...state,
           messages: [
             ...state.messages,
-            new AIMessage(`Tool result: ${JSON.stringify(result).slice(0, 500)}...`)
+            new AIMessage(`Tool result: ${result.content?.slice(0, 500) || 'Success'}...`)
           ],
         };
       } else {
         return {
           ...state,
-          error: `Unknown tool: ${action.tool}`,
+          error: `Tool failed: ${result.error}`,
         };
       }
     } catch (error) {
@@ -206,7 +203,7 @@ Respond with ONE of the following:
 Your response:`;
 
     const response = await this.llm.invoke([
-      new SystemMessage(this.buildSystemPrompt(state)),
+      new SystemMessage(await this.buildSystemPrompt(state)),
       new HumanMessage(reflectionPrompt),
     ]);
 
@@ -227,7 +224,7 @@ Summarize what was accomplished and any important information they should know.
 Be concise but thorough.`;
 
     const response = await this.llm.invoke([
-      new SystemMessage(this.buildSystemPrompt(state)),
+      new SystemMessage(await this.buildSystemPrompt(state)),
       new HumanMessage(responsePrompt),
     ]);
 
@@ -263,29 +260,24 @@ Be concise but thorough.`;
     return 'respond';
   }
 
-  private buildSystemPrompt(state: AgentState): string {
+  private async buildSystemPrompt(state: AgentState): Promise<string> {
+    const tools = await this.getMCPTools();
+    const toolList = tools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n');
+    
     return `You are an expert coding assistant working in an interactive development environment.
 
 Session ID: ${state.sessionId}
 Working Directory: ${state.workingDirectory}
 
 Available tools:
-- bash_execute: Run shell commands
-- file_write: Create or modify files
-- file_read: Read file contents
-- file_list: List directory contents
-- project_structure: Analyze project structure
-- git_operations: Perform git operations
-- package_install: Install packages (npm, pip, etc.)
-- create_artifact: Package project for download
-- browser_open: Open URLs in browser
-- process_monitor: Monitor running processes
+${toolList}
 
 Context:
 ${JSON.stringify(state.context, null, 2)}
 
 Be helpful, thorough, and proactive in accomplishing the user's goals.
-When executing tools, always provide the exact parameters needed.`;
+When executing tools, always provide the exact parameters needed.
+All tool executions happen in the container and are visible to the user via VNC.`;
   }
 
   private extractNextAction(state: AgentState): { tool: string; params: any } | null {
@@ -360,6 +352,6 @@ When executing tools, always provide the exact parameters needed.`;
 
   async shutdown(): Promise<void> {
     await this.emitEvent('system_update', 'Agent shutting down');
-    // Cleanup resources if needed
+    this.mcpClient.disconnect();
   }
 }

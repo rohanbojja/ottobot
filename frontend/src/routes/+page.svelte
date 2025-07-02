@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Activity, Zap, Monitor, Trash2, ExternalLink } from "@lucide/svelte";
+  import { Plus, Activity, Zap, Monitor, Trash2, ExternalLink, Users } from "@lucide/svelte";
   import * as Button from "$lib/components/ui/button/index.js";
   import * as Card from "$lib/components/ui/card/index.js";
   import { getSessionStatusColor } from "$lib/utils.js";
@@ -96,7 +96,7 @@
   </div>
 
   <!-- Stats Cards -->
-  <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+  <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5 mb-8">
     <Card.Card>
       <Card.CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
         <Card.CardTitle class="text-sm font-medium">Active Sessions</Card.CardTitle>
@@ -169,7 +169,62 @@
         <p class="text-xs text-muted-foreground">Pending jobs</p>
       </Card.CardContent>
     </Card.Card>
+
+    <Card.Card>
+      <Card.CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card.CardTitle class="text-sm font-medium">Connected Workers</Card.CardTitle>
+        <Users class="h-4 w-4 text-muted-foreground" />
+      </Card.CardHeader>
+      <Card.CardContent>
+        <div class="text-2xl font-bold">
+          {#if $metricsQuery.data}
+            {$metricsQuery.data.worker_status?.filter(w => w.active).length || 0}
+          {:else}
+            0
+          {/if}
+        </div>
+        <p class="text-xs text-muted-foreground">
+          {#if $metricsQuery.data && $metricsQuery.data.worker_status}
+            {$metricsQuery.data.worker_status.reduce((sum, w) => sum + w.current_jobs, 0)} active jobs
+          {:else}
+            Active workers
+          {/if}
+        </p>
+      </Card.CardContent>
+    </Card.Card>
   </div>
+
+  <!-- Worker Status -->
+  {#if $metricsQuery.data && $metricsQuery.data.worker_status && $metricsQuery.data.worker_status.length > 0}
+    <div class="space-y-4 mb-8">
+      <h2 class="text-xl font-semibold tracking-tight">Worker Status</h2>
+      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {#each $metricsQuery.data.worker_status as worker}
+          <Card.Card>
+            <Card.CardHeader class="pb-2">
+              <div class="flex items-center justify-between">
+                <Card.CardTitle class="text-sm font-medium">
+                  {worker.id}
+                </Card.CardTitle>
+                <div class="flex items-center gap-2">
+                  <div class="h-2 w-2 rounded-full {worker.active ? 'bg-green-500' : 'bg-red-500'}"></div>
+                  <span class="text-xs text-muted-foreground">
+                    {worker.active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+              </div>
+            </Card.CardHeader>
+            <Card.CardContent>
+              <div class="flex justify-between text-sm">
+                <span class="text-muted-foreground">Current Jobs:</span>
+                <span class="font-medium">{worker.current_jobs}</span>
+              </div>
+            </Card.CardContent>
+          </Card.Card>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   <!-- Sessions List -->
   <div class="space-y-4">

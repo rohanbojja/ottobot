@@ -17,7 +17,7 @@
 
 
 <QueryClientProvider client={queryClient}>
-	<div class="min-h-screen bg-gradient-to-br from-background to-muted/20">
+	<div class="min-h-screen bg-gradient-to-br from-background to-muted/20 flex flex-col">
 		<!-- Navigation Header -->
 		<header class="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-sm">
 			<div class="container flex h-16 max-w-screen-2xl items-center px-4 mx-auto">
@@ -71,12 +71,12 @@
 		</header>
 
 		<!-- Main Content -->
-		<main class="container mx-auto px-4 py-8 max-w-screen-2xl">
+		<main class="container mx-auto px-4 py-8 max-w-screen-2xl flex-1">
 			{@render children()}
 		</main>
 
 		<!-- Footer -->
-		<footer class="border-t bg-muted/50 mt-auto">
+		<footer class="border-t bg-muted/50">
 			<div class="container mx-auto px-4 py-6 max-w-screen-2xl">
 				<div class="flex flex-col items-center justify-between gap-4 md:flex-row">
 					<div class="flex items-center gap-2 text-sm text-muted-foreground">

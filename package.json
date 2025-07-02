@@ -20,6 +20,7 @@
     "@langchain/anthropic": "^0.1.0",
     "@langchain/core": "^0.1.0",
     "@langchain/langgraph": "^0.0.20",
+    "@modelcontextprotocol/sdk": "^1.13.3",
     "archiver": "^6.0.0",
     "bullmq": "^4.0.0",
     "dockerode": "^4.0.0",
