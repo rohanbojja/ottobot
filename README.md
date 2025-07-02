@@ -14,8 +14,10 @@ OttoBot is an interactive coding agent platform where users create persistent co
 
 ## Architecture
 
+API -> Worker (back pressure) -> Agent (runtime which interfaces with MCP server in the sandbox container).
+
 ```
-User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + MCP Server)
+User → API Server (Elysia) → Worker Processes (back pressure agent runtime[for now]) → Sandbox Containers (VNC + MCP Server)
               ↓                     ↓                      ↓
            Redis Queue        Docker + Port Allocation    MCP Tools (File I/O, Commands, VS Code)
                                      ↓
@@ -84,18 +86,54 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### Development Mode
+### Local Development Setup
 
+**Prerequisites:**
+- Docker must be installed and running
+- Bun runtime installed
+- Google Gemini API key
+
+**Step-by-step setup:**
+
+1. **Build the development agent image:**
 ```bash
-# Start Redis only
+docker build -f docker/Dockerfile.mock-agent -t ottobot-dev-agent .
+```
+
+2. **Start Redis using Docker Compose:**
+```bash
 docker-compose -f docker-compose.dev.yml up -d
+```
 
-# Terminal 1: Start API server
+3. **Start the services locally:**
+
+Terminal 1 - API Server (Port 3000):
+```bash
 bun run dev:api
+```
 
-# Terminal 2: Start worker
+Terminal 2 - Worker Process:
+```bash
 bun run dev:worker
 ```
+
+Terminal 3 - Frontend (Port 5173):
+```bash
+cd frontend
+bun run dev
+```
+
+**Access the application:**
+- Frontend: http://localhost:5173
+- API: http://localhost:3000
+- Queue Monitor: http://localhost:3000/ui (Bull Board)
+- API Documentation: http://localhost:3000/swagger
+
+**Important Notes:**
+- Docker daemon must be running for session creation to work
+- Sessions create isolated containers using the `ottobot-dev-agent` image
+- Each session gets allocated VNC ports (6080-6200) and MCP ports (8080-8200)
+- Frontend generates API client from OpenAPI schema with `bun generate:api`
 
 ## API Usage
 
@@ -143,7 +181,7 @@ ws.send(JSON.stringify({
 
 Open the VNC URL in your browser to watch the agent work in real-time.
 
-### Download Project
+### Download Project (not implemented)
 
 ```bash
 curl -O http://localhost:3000/download/abc123/project.zip

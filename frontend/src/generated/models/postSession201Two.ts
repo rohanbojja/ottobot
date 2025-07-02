@@ -19,4 +19,6 @@ export type PostSession201Two = {
   chat_url: string;
   created_at: string;
   expires_at: string;
+  /** The initial prompt used to create this session */
+  initial_prompt: string;
 };

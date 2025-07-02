@@ -19,4 +19,6 @@ export type GetSession200ThreeSessionsItem = {
   chat_url: string;
   created_at: string;
   expires_at: string;
+  /** The initial prompt used to create this session */
+  initial_prompt: string;
 };

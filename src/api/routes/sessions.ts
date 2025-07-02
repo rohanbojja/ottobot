@@ -140,6 +140,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
           created_at: session.createdAt.toISOString(),
           expires_at: session.expiresAt.toISOString(),
+          initial_prompt: initial_prompt,
         };
 
         logger.info(`Created session ${session.id}`);
@@ -191,6 +192,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
           created_at: session.createdAt,
           expires_at: session.expiresAt,
+          initial_prompt: session.initialPrompt,
         };
 
         return response;
@@ -284,7 +286,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
     async ({ params, query, set }) => {
       try {
         const { id } = params;
-        const limit = query.limit ? parseInt(query.limit as string, 10) : 100;
+        const limit = query['limit'] ? parseInt(query['limit'] as string, 10) : 100;
 
         const session = await SessionManager.getSession(id);
         if (!session) {

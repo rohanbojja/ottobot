@@ -203,6 +203,9 @@ export class SessionHandler {
       // Get agent
       const agent = this.activeAgents.get(sessionId);
       if (!agent) {
+        // TODO: Start agent if not running, will be handled once agent runtime is moved out of worker
+        // For now, throw error
+        // API -> Worker (back pressure) -> Agent (runtime which interfaces with MCP server in the sandbox container). Agent runs inside worker for now
         throw new Error('Agent not running');
       }
 

@@ -36,6 +36,9 @@ export const SessionResponseSchema = t.Object({
   }),
   expires_at: t.String({
     format: 'date-time'
+  }),
+  initial_prompt: t.String({
+    description: 'The initial prompt used to create this session'
   })
 });
 

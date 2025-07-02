@@ -128,7 +128,7 @@ export class SessionManager {
 
     for (const id of sessionIds) {
       const session = await this.getSession(id);
-      if (session && session.status !== "terminated") {
+      if (session) {
         sessions.push(session);
       }
     }

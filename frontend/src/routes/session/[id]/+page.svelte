@@ -292,8 +292,7 @@
 	<title>Session {sessionId} - OttoBot</title>
 </svelte:head>
 
-<div class="container mx-auto px-4 py-8">
-	<h1 class="text-2xl font-bold mb-6">Session {sessionId}</h1>
+<div class="container mx-auto px-4 py-4">
 	{#if $sessionQuery.isLoading}
 		<div class="flex items-center justify-center h-[600px]">
 			<Loader2 class="h-8 w-8 animate-spin" />
@@ -306,96 +305,75 @@
 		</Card.Card>
 	{:else if $sessionQuery.data}
 		<!-- Debug: Session data loaded successfully -->
-		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[800px]">
-			<!-- VNC Viewer -->
-			<Card.Card class="overflow-hidden">
+		<div class="max-w-3xl mx-auto">
+			<!-- Chat Interface -->
+			<Card.Card class="flex flex-col h-[calc(100vh-10rem)]">
 				<Card.CardHeader>
 					<div class="flex items-center justify-between">
-						<Card.CardTitle class="flex items-center gap-2">
-							<Terminal class="h-5 w-5" />
-							Development Environment
-						</Card.CardTitle>
-
+						<div>
+							<Card.CardTitle>Chat with AI Assistant</Card.CardTitle>
+							<Card.CardDescription>
+								{#if $sessionQuery.data.status === 'initializing'}
+									<span class="text-yellow-600">● Initializing...</span>
+								{:else if isConnected}
+									<span class="text-green-600">● Connected</span>
+								{:else}
+									<span class="text-gray-500">● Disconnected</span>
+								{/if}
+							</Card.CardDescription>
+						</div>
 						<!-- Fullscreen button -->
 						{#if $sessionQuery.data.vnc_url && ($sessionQuery.data.status === 'ready' || $sessionQuery.data.status === 'running')}
-							<div class="flex gap-2">
-								<Button
-									variant="outline"
-									size="sm"
-									onclick={openVncFullscreen}
-									title="Open in new window"
-								>
-									<ExternalLink class="h-4 w-4" />
-								</Button>
-							</div>
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={openVncFullscreen}
+								title="Open development environment in new window"
+							>
+								<ExternalLink class="h-4 w-4 mr-2" />
+								Open VNC
+							</Button>
 						{/if}
 					</div>
-					<Card.CardDescription>
-						Status: <span class="font-medium capitalize">{$sessionQuery.data.status}</span>
-					</Card.CardDescription>
 				</Card.CardHeader>
-				<Card.CardContent class="p-0 h-[calc(100%-5rem)]">
-					{#if $sessionQuery.data.status === 'ready' || $sessionQuery.data.status === 'running'}
-						{#if $sessionQuery.data.vnc_url}
-							<iframe
-								src={$sessionQuery.data.vnc_url}
-								class="w-full h-full border-0"
-								title="VNC Session"
-								on:load={() => vncLoaded = true}
-							/>
-							{#if !vncLoaded}
-								<div class="absolute inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-									<Loader2 class="h-8 w-8 animate-spin" />
+				<Card.CardContent class="flex-1 flex flex-col p-0 max-h-[calc(100%-6rem)]">
+					<!-- Messages -->
+					<div class="flex max-h-[calc(100%-5rem)] w-full relative">
+						{#if $sessionQuery.data.status === 'initializing'}
+							<div class="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-10">
+								<div class="text-center">
+									<Loader2 class="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+									<p class="text-gray-600 dark:text-gray-400 font-medium">Initializing environment...</p>
+									<p class="text-sm text-gray-500 dark:text-gray-500 mt-2">This may take a moment</p>
+								</div>
+							</div>
+						{/if}
+						<ScrollArea class="p-2 m-2 w-full" onscroll={handleScroll}>
+							<!-- Always show initial prompt if available -->
+							{#if $sessionQuery.data.initial_prompt}
+								<div class="group relative p-3 mb-2 rounded-lg max-w-[85%] shadow-sm border bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700 ml-auto">
+									<div class="text-xs font-medium text-blue-600 mb-1">Initial Prompt</div>
+									<p class="whitespace-pre-wrap text-sm leading-relaxed">{$sessionQuery.data.initial_prompt}</p>
+									<div class="flex justify-between items-center mt-2 text-xs opacity-60">
+										<span class="group-hover:opacity-100 transition-opacity">
+											{new Date($sessionQuery.data.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+										</span>
+										<span class="text-blue-500">→</span>
+									</div>
 								</div>
 							{/if}
-						{:else}
-							<div class="flex items-center justify-center h-full text-gray-500">
-								VNC URL not available
-							</div>
-						{/if}
-					{:else if $sessionQuery.data.status === 'initializing'}
-						<div class="flex items-center justify-center h-full">
-							<div class="text-center">
-								<Loader2 class="h-8 w-8 animate-spin mx-auto mb-4" />
-								<p class="text-gray-600 dark:text-gray-400">Initializing environment...</p>
-							</div>
-						</div>
-					{:else}
-						<div class="flex items-center justify-center h-full text-gray-500">
-							Session status: {$sessionQuery.data.status}
-						</div>
-					{/if}
-				</Card.CardContent>
-			</Card.Card>
 
-			<!-- Chat Interface -->
-			<Card.Card class="flex flex-col">
-				<Card.CardHeader>
-					<Card.CardTitle>Chat with AI Assistant</Card.CardTitle>
-					<Card.CardDescription>
-						{#if isConnected}
-							<span class="text-green-600">● Connected</span>
-						{:else}
-							<span class="text-gray-500">● Disconnected</span>
-						{/if}
-					</Card.CardDescription>
-				</Card.CardHeader>
-				<Card.CardContent class="flex-1 flex flex-col p-0 max-h-[calc(100%-5rem)]">
-					<!-- Messages -->
-					<div class="flex-1 relative">
-						<ScrollArea class="h-full" onscroll={handleScroll}>
-							<div
-								id="chat-messages"
-								class="p-4 space-y-2"
-								bind:this={chatContainer}
-							>
-								{#if messages.length === 0}
-									<div class="text-center text-gray-500 py-8">
-										Start a conversation with the AI assistant
-									</div>
-								{/if}
+							{#if messages.length === 0}
+								<div class="text-center text-gray-500 py-8">
+									{#if $sessionQuery.data.status === 'initializing'}
+										Environment is being prepared...
+									{:else}
+										{$sessionQuery.data.initial_prompt ? 'Agent will respond shortly...' : 'Start a conversation with the AI assistant'}
+									{/if}
+								</div>
+							{/if}
 								{#each messages as message}
-									<div class={`group relative p-3 rounded-lg max-w-[85%] shadow-sm border ${getMessageClass(message.type)}`}>
+									<div class={`group relative p-3 mb-2 rounded-lg max-w-[85%] shadow-sm border ${getMessageClass(message.type)}`}>
 										<!-- Message type indicator -->
 										{#if message.type === 'user'}
 											<div class="text-xs font-medium text-blue-600 mb-1">You</div>
@@ -431,7 +409,6 @@
 										</div>
 									</div>
 								{/each}
-							</div>
 						</ScrollArea>
 
 						<!-- Scroll to bottom button -->
@@ -449,11 +426,11 @@
 					</div>
 
 					<!-- Input -->
-					<div class="border-t p-4">
-						<div class="flex gap-2">
+					<div class="border-t p-4 place-items-center">
+						<div class="flex gap-2 place-items-center">
 							<textarea
 								bind:value={chatInput}
-								on:keydown={handleKeyPress}
+								onkeydown={handleKeyPress}
 								placeholder="Type your message..."
 								class="flex-1 min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
 								disabled={!isConnected || $sessionQuery.data.status !== 'ready' && $sessionQuery.data.status !== 'running'}

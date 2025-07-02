@@ -211,6 +211,7 @@ export const getGetSessionResponseMock = (
         chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
         created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
         expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+        initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       })),
       total: faker.number.float({
         min: undefined,
@@ -247,6 +248,7 @@ export const getGetSessionResponseMock = (
         chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
         created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
         expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+        initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       })),
       total: faker.number.float({
         min: undefined,
@@ -283,6 +285,7 @@ export const getGetSessionResponseMock = (
         chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
         created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
         expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+        initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       })),
       total: faker.number.float({
         min: undefined,
@@ -323,6 +326,7 @@ export const getPostSessionResponseMock = (
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
     {
@@ -339,6 +343,7 @@ export const getPostSessionResponseMock = (
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
     {
@@ -355,6 +360,7 @@ export const getPostSessionResponseMock = (
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
   ]);
@@ -379,6 +385,7 @@ export const getGetSessionByIdResponseMock = (
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
     {
@@ -395,6 +402,7 @@ export const getGetSessionByIdResponseMock = (
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
     {
@@ -411,6 +419,7 @@ export const getGetSessionByIdResponseMock = (
       chat_url: faker.string.alpha({ length: { min: 10, max: 20 } }),
       created_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
       expires_at: `${faker.date.past().toISOString().split(".")[0]}Z`,
+      initial_prompt: faker.string.alpha({ length: { min: 10, max: 20 } }),
       ...overrideResponse,
     },
   ]);

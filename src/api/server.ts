@@ -5,6 +5,7 @@ import { CONFIG } from "@/shared/config";
 import { createLogger } from "@/shared/logger";
 import { redisPlugin } from "./plugins/redis";
 import { queuePlugin } from "./plugins/queue";
+import { serverAdapter } from "./plugins/bull-board";
 import { sessionRoutes } from "./routes/sessions";
 import { healthRoutes } from "./routes/health";
 import { downloadRoutes } from "./routes/downloads";
@@ -62,12 +63,14 @@ export const createApiServer = () => {
             { name: "sessions", description: "Session management endpoints" },
             { name: "health", description: "Health and monitoring endpoints" },
             { name: "downloads", description: "File download endpoints" },
+            { name: "admin", description: "Administrative endpoints" },
           ],
         },
       }),
     )
     .use(redisPlugin)
     .use(queuePlugin)
+    .use(serverAdapter.registerPlugin())
     // Routes
     .use(healthRoutes)
     .use(sessionRoutes)

@@ -25,9 +25,11 @@ User → API Server (Elysia) → Worker Processes → Agent Containers (VNC + MC
 The coding agent now uses the **Model Context Protocol (MCP)** for secure tool execution:
 
 - **MCP Server**: Runs inside each container on allocated ports (8080-8200 range)
-- **Agent Brain**: Runs in worker process, connects to container's MCP server via HTTP
+- **Agent Brain**: Currently runs in worker process, connects to container's MCP server via HTTP
 - **Tool Isolation**: All file operations, command execution, and VS Code interactions happen in the isolated container
 - **Security**: Agent can only interact with container through well-defined MCP protocol
+
+**Note**: See `docs/HIGH-LEVEL-DESIGN.md` for detailed architecture documentation. The current implementation has agent runtime embedded in workers for simplicity, but the future architecture will move agents to a dedicated runtime pool for better scalability and separation of concerns.
 
 ## Key Technologies
 
@@ -358,6 +360,8 @@ The complete session creation and interaction flow:
 - MCP servers use localhost with dynamically allocated ports (8080-8200)
 - Session status flows: initializing → ready → running → terminated
 - WebSocket messages handled through SessionRouter for cross-process communication
-- Agent brain runs in worker process, tool execution in container via MCP
+- Agent brain currently runs in worker process (temporary), tool execution in container via MCP
+- Future: Agent runtime will be moved to dedicated agent pool for better scalability
 - Container startup: allocate ports → create container → start → wait for VNC → start agent with MCP connection
 - Each session gets dedicated port pair: VNC for UI access, MCP for agent tools
+- Architecture evolution: v1.0 (agents in workers) → v2.0 (dedicated agent pool)

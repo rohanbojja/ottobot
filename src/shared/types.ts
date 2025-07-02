@@ -29,6 +29,7 @@ export interface SessionResponse {
   chat_url: string;
   created_at: string;
   expires_at: string;
+  initial_prompt: string;
 }
 
 export interface ChatMessage {
