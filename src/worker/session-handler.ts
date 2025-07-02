@@ -76,11 +76,33 @@ export class SessionHandler {
       logger.info(`Session ${sessionId} created successfully`);
     } catch (error) {
       logger.error(`Failed to create session ${sessionId}:`, error);
-      await SessionManager.updateSessionStatus(sessionId, 'error', error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await SessionManager.updateSessionStatus(sessionId, 'error', errorMessage);
       
       // Cleanup on failure
-      if (vncPort) {
-        await SessionManager.releaseVncPort(vncPort);
+      try {
+        // Get current session state for cleanup
+        const session = await SessionManager.getSession(sessionId);
+        
+        // Remove container if it was created
+        if (session?.containerId) {
+          try {
+            await this.containerManager.stopContainer(session.containerId);
+            await this.containerManager.removeContainer(session.containerId);
+          } catch (containerError) {
+            logger.warn(`Container cleanup failed during error handling:`, containerError);
+          }
+        }
+        
+        // Release VNC port
+        if (vncPort) {
+          await SessionManager.releaseVncPort(vncPort);
+        }
+        
+        // Remove session entirely
+        await SessionManager.deleteSession(sessionId);
+      } catch (cleanupError) {
+        logger.error(`Cleanup failed for session ${sessionId}:`, cleanupError);
       }
       
       throw error;
@@ -103,10 +125,22 @@ export class SessionHandler {
 
       await job.updateProgress(30);
 
-      // Stop and remove container
+      // Stop and remove container with retry logic
       if (containerId) {
-        await this.containerManager.stopContainer(containerId);
-        await this.containerManager.removeContainer(containerId);
+        try {
+          await this.containerManager.stopContainer(containerId);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for graceful shutdown
+          await this.containerManager.removeContainer(containerId);
+        } catch (error) {
+          logger.warn(`Container cleanup failed for ${containerId}, attempting force removal:`, error);
+          try {
+            // Force remove as fallback
+            await this.containerManager.removeContainer(containerId);
+          } catch (forceError) {
+            logger.error(`Force container removal failed:`, forceError);
+            // Continue with session cleanup even if container removal fails
+          }
+        }
       }
 
       await job.updateProgress(70);
@@ -165,9 +199,10 @@ export class SessionHandler {
     } catch (error) {
       logger.error(`Failed to process message for session ${sessionId}:`, error);
       
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await SessionRouter.publish(sessionId, {
         type: 'error',
-        content: `Failed to process message: ${error.message}`,
+        content: `Failed to process message: ${errorMessage}`,
         timestamp: Date.now(),
       });
       
@@ -176,7 +211,7 @@ export class SessionHandler {
   }
 
   private async startAgent(sessionId: string, containerId: string, initialPrompt: string): Promise<void> {
-    logger.info(`Starting agent for session ${sessionId} with prompt: ${initialPrompt}`);
+    logger.info(`Starting agent for session ${sessionId} (container: ${containerId}) with prompt: ${initialPrompt}`);
     
     // Create message handler
     const onMessage = async (message: ChatMessage) => {

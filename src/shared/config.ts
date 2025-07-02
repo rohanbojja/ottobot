@@ -46,7 +46,7 @@ export const CONFIG = {
     vncPortRangeStart: parseInt(process.env.VNC_PORT_RANGE_START || "6080", 10),
     vncPortRangeEnd: parseInt(process.env.VNC_PORT_RANGE_END || "6200", 10),
     network: process.env.CONTAINER_NETWORK || "ottobot-network",
-    agentImage: process.env.AGENT_IMAGE || "node:20-alpine",
+    agentImage: process.env.AGENT_IMAGE || "ottobot-mock-agent",
   },
 
   // Security Configuration

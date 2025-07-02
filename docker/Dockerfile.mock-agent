@@ -12,8 +12,15 @@ RUN apk add --no-cache \
     curl \
     && rm -rf /var/cache/apk/*
 
-# Install websockify for noVNC
+# Install websockify and noVNC for web access
 RUN pip3 install --break-system-packages websockify
+
+# Install noVNC web client files
+RUN apk add --no-cache git \
+    && git clone https://github.com/novnc/noVNC.git /usr/share/novnc \
+    && ln -s /usr/share/novnc/vnc.html /usr/share/novnc/index.html \
+    && apk del git \
+    && rm -rf /var/cache/apk/*
 
 # Create user for running desktop
 RUN adduser -D -s /bin/bash developer

@@ -2,117 +2,227 @@
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { Card } from '$lib/components/ui/card';
+  import * as Card from "$lib/components/ui/card/index.js";
 	import { Button } from '$lib/components/ui/button';
 	import { getSessionById } from '$lib/api/queries';
-	import { Send, Terminal, Loader2 } from '@lucide/svelte/icons';
+	import { Send, Terminal, Loader2, Maximize, ExternalLink } from '@lucide/svelte/icons';
 
-	let { data: pageData } = $props();
+	// Removed unused pageData props
 
 	// Session state
 	let sessionId = $derived($page.params.id);
+
 	let chatInput = $state('');
-	let messages = $state<Array<{type: string, content: string, timestamp: string}>>([]);
+	let messages = $state<Array<{id: string, type: string, content: string, timestamp: string}>>([]);
+	let messageIds = new Set<string>();
 	let isConnected = $state(false);
+	let isConnecting = $state(false);
 	let ws: WebSocket | null = null;
 	let vncLoaded = $state(false);
+	let reconnectTimeout: number | null = null;
+	
+	// Chat scroll state
+	let isAtBottom = $state(true);
+	let showScrollButton = $state(false);
 
 	// Query session details
 	const sessionQuery = createQuery({
 		queryKey: ['session', sessionId],
-		queryFn: () => getSessionById(sessionId),
-		refetchInterval: isConnected ? false : 5000, // Poll until connected
+		queryFn: () => {
+			console.log('Fetching session data for ID:', sessionId);
+			return getSessionById(sessionId);
+		},
+		refetchInterval: isConnected ? 30000 : 10000, // Poll every 30s when connected, 10s when not
+		retry: 3,
+		retryDelay: 1000,
 	});
 
 	// WebSocket connection
 	function connectWebSocket() {
 		if (!$sessionQuery.data?.chat_url) return;
+		if (isConnecting || isConnected) return; // Prevent multiple connections
+		
+		// Clear any pending reconnection timeout
+		if (reconnectTimeout) {
+			clearTimeout(reconnectTimeout);
+			reconnectTimeout = null;
+		}
+		
+		// Close existing connection if any
+		if (ws && ws.readyState !== WebSocket.CLOSED) {
+			console.log('Closing existing WebSocket connection');
+			ws.close();
+		}
 
+		isConnecting = true;
 		const wsUrl = $sessionQuery.data.chat_url;
+		console.log('Connecting to WebSocket:', wsUrl);
 		ws = new WebSocket(wsUrl);
 
 		ws.onopen = () => {
+			isConnecting = false;
 			isConnected = true;
+			console.log('WebSocket connected successfully');
+			
+			// Clear old messages when reconnecting to prevent duplicates
+			if (messages.length > 0) {
+				console.log('Clearing old messages on reconnect');
+				messages = [];
+				messageIds.clear();
+			}
+			
 			addMessage('system', 'Connected to session');
 		};
 
 		ws.onmessage = (event) => {
 			try {
 				const message = JSON.parse(event.data);
+				console.log('Received WebSocket message:', message);
 				handleWebSocketMessage(message);
 			} catch (e) {
-				console.error('Failed to parse WebSocket message:', e);
+				console.error('Failed to parse WebSocket message:', e, 'Raw data:', event.data);
 			}
 		};
 
 		ws.onerror = (error) => {
 			console.error('WebSocket error:', error);
+			isConnecting = false;
+			isConnected = false;
 			addMessage('system', 'Connection error occurred');
 		};
 
-		ws.onclose = () => {
+		ws.onclose = (event) => {
+			isConnecting = false;
 			isConnected = false;
-			addMessage('system', 'Disconnected from session');
-			// Attempt to reconnect after 3 seconds
-			setTimeout(() => {
+			console.log('WebSocket closed:', event.code, event.reason);
+			
+			// Only show disconnect message if it wasn't a normal closure
+			if (event.code !== 1000) {
+				addMessage('system', 'Disconnected from session');
+				
+				// Only attempt to reconnect if session is still active and it was an unexpected disconnect
 				if ($sessionQuery.data?.status === 'ready' || $sessionQuery.data?.status === 'running') {
-					connectWebSocket();
+					console.log('Attempting to reconnect in 5 seconds...');
+					reconnectTimeout = setTimeout(() => {
+						connectWebSocket();
+					}, 5000); // Increased to 5 seconds
 				}
-			}, 3000);
+			}
 		};
 	}
 
 	function handleWebSocketMessage(message: any) {
+		// Create unique message ID based on timestamp and content
+		const messageId = `${message.type}-${message.timestamp}-${message.content?.substring(0, 10)}`;
+		
 		switch (message.type) {
 			case 'user_prompt':
-				addMessage('user', message.content);
+				addMessage('user', message.content, messageId);
 				break;
 			case 'agent_response':
-				addMessage('agent', message.content);
+				addMessage('agent', message.content, messageId);
 				break;
 			case 'agent_thinking':
-				addMessage('thinking', message.content);
+				addMessage('thinking', message.content, messageId);
 				break;
 			case 'agent_action':
-				addMessage('action', message.content);
+				addMessage('action', message.content, messageId);
 				break;
 			case 'system_update':
-				addMessage('system', message.content);
+				addMessage('system', message.content, messageId);
 				// Check if VNC is ready
 				if (message.metadata?.vnc_ready) {
 					vncLoaded = true;
 				}
 				break;
 			case 'error':
-				addMessage('error', message.error || 'An error occurred');
+				addMessage('error', message.error || 'An error occurred', messageId);
 				break;
+			default:
+				console.warn('Unknown message type:', message.type, message);
 		}
 	}
 
-	function addMessage(type: string, content: string) {
+	function addMessage(type: string, content: string, messageId?: string) {
+		// Generate ID if not provided (for deduplication)
+		const id = messageId || `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+		
+		// Prevent duplicate messages
+		if (messageIds.has(id)) {
+			console.log('Skipping duplicate message:', id);
+			return;
+		}
+		
+		messageIds.add(id);
 		messages = [...messages, {
+			id,
 			type,
 			content,
 			timestamp: new Date().toISOString()
 		}];
-		// Auto-scroll to bottom
+		
+		// Auto-scroll to bottom only if user is at bottom
 		setTimeout(() => {
-			const chatContainer = document.getElementById('chat-messages');
-			if (chatContainer) {
-				chatContainer.scrollTop = chatContainer.scrollHeight;
+			if (isAtBottom) {
+				scrollToBottom();
 			}
 		}, 10);
 	}
 
 	function sendMessage() {
-		if (!chatInput.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
+		if (!chatInput.trim() || !ws || ws.readyState !== WebSocket.OPEN) {
+			console.log('Cannot send message:', {
+				hasInput: !!chatInput.trim(),
+				hasWs: !!ws,
+				wsState: ws?.readyState
+			});
+			return;
+		}
 
-		ws.send(JSON.stringify({
+		const message = {
 			type: 'user_prompt',
 			content: chatInput.trim()
-		}));
+		};
+		
+		console.log('Sending message:', message);
+		ws.send(JSON.stringify(message));
 
 		chatInput = '';
+	}
+	
+	// Scroll functions
+	function scrollToBottom() {
+		const chatContainer = document.getElementById('chat-messages');
+		if (chatContainer) {
+			chatContainer.scrollTop = chatContainer.scrollHeight;
+			isAtBottom = true;
+			showScrollButton = false;
+		}
+	}
+	
+	function handleScroll(event: Event) {
+		const chatContainer = event.target as HTMLElement;
+		const threshold = 50; // pixels from bottom
+		
+		isAtBottom = chatContainer.scrollTop + chatContainer.clientHeight + threshold >= chatContainer.scrollHeight;
+		showScrollButton = !isAtBottom;
+	}
+	
+	// VNC fullscreen function
+	function openVncFullscreen() {
+		if ($sessionQuery.data?.vnc_url) {
+			const vncWindow = window.open(
+				$sessionQuery.data.vnc_url,
+				'vnc-fullscreen',
+				'width=1920,height=1080,scrollbars=yes,resizable=yes,status=no,location=no,toolbar=no,menubar=no'
+			);
+			
+			if (vncWindow) {
+				vncWindow.focus();
+			} else {
+				alert('Please allow popups to open VNC in fullscreen mode');
+			}
+		}
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
@@ -125,7 +235,8 @@
 	onMount(() => {
 		// Connect WebSocket when session is ready
 		const checkAndConnect = () => {
-			if ($sessionQuery.data?.status === 'ready' || $sessionQuery.data?.status === 'running') {
+			// Only try to connect if not already connected or connecting
+			if (!isConnected && !isConnecting && ($sessionQuery.data?.status === 'ready' || $sessionQuery.data?.status === 'running')) {
 				connectWebSocket();
 			}
 		};
@@ -133,39 +244,56 @@
 		// Initial check
 		checkAndConnect();
 
-		// Set up interval to check status
-		const interval = setInterval(checkAndConnect, 2000);
+		// Set up interval to check status (less frequent)
+		const interval = setInterval(checkAndConnect, 10000); // Reduced frequency to 10 seconds
 
-		return () => clearInterval(interval);
+		return () => {
+			clearInterval(interval);
+			if (reconnectTimeout) {
+				clearTimeout(reconnectTimeout);
+			}
+		};
 	});
 
 	onDestroy(() => {
-		if (ws) {
-			ws.close();
+		if (reconnectTimeout) {
+			clearTimeout(reconnectTimeout);
 		}
+		if (ws) {
+			console.log('Cleaning up WebSocket connection');
+			ws.close(1000, 'Component destroyed'); // Normal closure
+			ws = null;
+		}
+		isConnected = false;
+		isConnecting = false;
 	});
 
 	function getMessageClass(type: string) {
 		switch (type) {
 			case 'user':
-				return 'bg-blue-100 dark:bg-blue-900 ml-auto';
+				return 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700 ml-auto';
 			case 'agent':
-				return 'bg-gray-100 dark:bg-gray-800';
+				return 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700';
 			case 'thinking':
-				return 'bg-yellow-50 dark:bg-yellow-900 italic';
+				return 'bg-yellow-50 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700';
 			case 'action':
-				return 'bg-green-50 dark:bg-green-900 font-mono text-sm';
+				return 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700';
 			case 'system':
-				return 'bg-gray-50 dark:bg-gray-900 text-center text-sm italic';
+				return 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-600 mx-auto text-center';
 			case 'error':
-				return 'bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-300';
+				return 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700 text-red-700 dark:text-red-300';
 			default:
-				return 'bg-gray-100 dark:bg-gray-800';
+				return 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700';
 		}
 	}
 </script>
 
+<svelte:head>
+	<title>Session {sessionId} - OttoBot</title>
+</svelte:head>
+
 <div class="container mx-auto px-4 py-8">
+	<h1 class="text-2xl font-bold mb-6">Session {sessionId}</h1>
 	{#if $sessionQuery.isLoading}
 		<div class="flex items-center justify-center h-[600px]">
 			<Loader2 class="h-8 w-8 animate-spin" />
@@ -177,14 +305,31 @@
 			</Card.CardContent>
 		</Card.Card>
 	{:else if $sessionQuery.data}
+		<!-- Debug: Session data loaded successfully -->
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[800px]">
 			<!-- VNC Viewer -->
 			<Card.Card class="overflow-hidden">
 				<Card.CardHeader>
-					<Card.CardTitle class="flex items-center gap-2">
-						<Terminal class="h-5 w-5" />
-						Development Environment
-					</Card.CardTitle>
+					<div class="flex items-center justify-between">
+						<Card.CardTitle class="flex items-center gap-2">
+							<Terminal class="h-5 w-5" />
+							Development Environment
+						</Card.CardTitle>
+						
+						<!-- Fullscreen button -->
+						{#if $sessionQuery.data.vnc_url && ($sessionQuery.data.status === 'ready' || $sessionQuery.data.status === 'running')}
+							<div class="flex gap-2">
+								<Button.Button 
+									variant="outline" 
+									size="sm"
+									on:click={openVncFullscreen}
+									title="Open in new window"
+								>
+									<ExternalLink class="h-4 w-4" />
+								</Button.Button>
+							</div>
+						{/if}
+					</div>
 					<Card.CardDescription>
 						Status: <span class="font-medium capitalize">{$sessionQuery.data.status}</span>
 					</Card.CardDescription>
@@ -237,24 +382,68 @@
 				</Card.CardHeader>
 				<Card.CardContent class="flex-1 flex flex-col p-0">
 					<!-- Messages -->
-					<div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-2">
+					<div class="flex-1 relative">
+						<div 
+							id="chat-messages" 
+							class="h-full overflow-y-auto p-4 space-y-2 scroll-smooth"
+							on:scroll={handleScroll}
+						>
 						{#if messages.length === 0}
 							<div class="text-center text-gray-500 py-8">
 								Start a conversation with the AI assistant
 							</div>
 						{/if}
 						{#each messages as message}
-							<div class={`p-3 rounded-lg max-w-[80%] ${getMessageClass(message.type)}`}>
-								{#if message.type === 'action'}
-									<pre class="whitespace-pre-wrap">{message.content}</pre>
-								{:else}
-									<p class="whitespace-pre-wrap">{message.content}</p>
+							<div class={`group relative p-3 rounded-lg max-w-[85%] shadow-sm border ${getMessageClass(message.type)}`}>
+								<!-- Message type indicator -->
+								{#if message.type === 'user'}
+									<div class="text-xs font-medium text-blue-600 mb-1">You</div>
+								{:else if message.type === 'agent'}
+									<div class="text-xs font-medium text-gray-600 mb-1">AI Assistant</div>
+								{:else if message.type === 'thinking'}
+									<div class="text-xs font-medium text-yellow-600 mb-1">🤔 Thinking...</div>
+								{:else if message.type === 'action'}
+									<div class="text-xs font-medium text-green-600 mb-1">⚡ Action</div>
+								{:else if message.type === 'system'}
+									<div class="text-xs font-medium text-gray-500 mb-1">🔧 System</div>
+								{:else if message.type === 'error'}
+									<div class="text-xs font-medium text-red-600 mb-1">❌ Error</div>
 								{/if}
-								<p class="text-xs opacity-60 mt-1">
-									{new Date(message.timestamp).toLocaleTimeString()}
-								</p>
+								
+								<!-- Message content -->
+								{#if message.type === 'action'}
+									<pre class="whitespace-pre-wrap text-sm font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded border">{message.content}</pre>
+								{:else}
+									<p class="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+								{/if}
+								
+								<!-- Timestamp -->
+								<div class="flex justify-between items-center mt-2 text-xs opacity-60">
+									<span class="group-hover:opacity-100 transition-opacity">
+										{new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+									</span>
+									{#if message.type === 'user'}
+										<span class="text-blue-500">→</span>
+									{:else if message.type === 'agent'}
+										<span class="text-gray-500">←</span>
+									{/if}
+								</div>
 							</div>
 						{/each}
+						</div>
+						
+						<!-- Scroll to bottom button -->
+						{#if showScrollButton}
+							<button 
+								class="absolute bottom-4 right-4 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
+								on:click={scrollToBottom}
+								title="Scroll to bottom"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+								</svg>
+							</button>
+						{/if}
 					</div>
 
 					<!-- Input -->
@@ -305,5 +494,22 @@
 				</Card.CardContent>
 			</Card.Card>
 		</div>
+	{:else}
+		<!-- Debug: No session data available -->
+		<Card.Card>
+			<Card.CardContent class="pt-6">
+				<p class="text-yellow-600">Session data not available</p>
+				<details class="mt-4">
+					<summary class="cursor-pointer text-sm text-gray-500">Debug Info</summary>
+					<pre class="mt-2 text-xs bg-gray-100 p-2 rounded">{JSON.stringify({
+						sessionId,
+						isLoading: $sessionQuery.isLoading,
+						isError: $sessionQuery.isError,
+						error: $sessionQuery.error?.message,
+						data: $sessionQuery.data
+					}, null, 2)}</pre>
+				</details>
+			</Card.CardContent>
+		</Card.Card>
 	{/if}
 </div>

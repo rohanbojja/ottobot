@@ -44,6 +44,7 @@ export const createApiServer = () => {
     .use(
       cors({
         origin: CONFIG.security.corsOrigins,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         credentials: true,
       }),
     )

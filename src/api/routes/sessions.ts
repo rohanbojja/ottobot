@@ -10,10 +10,14 @@ import { createLogger } from "@/shared/logger";
 import { CONFIG } from "@/shared/config";
 import { JOB_NAMES } from "@/shared/queue";
 import type { CreateSessionRequest, SessionResponse } from "@/shared/types";
+import { queuePlugin } from "../plugins/queue";
+import { redisPlugin } from "../plugins/redis";
 
 const logger = createLogger("session-routes");
 
 export const sessionRoutes = new Elysia({ prefix: "/session" })
+  .use(queuePlugin)
+  .use(redisPlugin)
   .get(
     "/",
     async ({ query, set }) => {

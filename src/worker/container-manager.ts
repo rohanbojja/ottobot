@@ -1,7 +1,7 @@
 import Docker from "dockerode";
 import { CONFIG } from "@/shared/config";
 import { createLogger } from "@/shared/logger";
-import type { ContainerConfig } from "@/shared/types";
+// Removed unused ContainerConfig import
 
 const logger = createLogger("container-manager");
 
@@ -23,7 +23,7 @@ export class ContainerManager {
       // Build container configuration
       const config: Docker.ContainerCreateOptions = {
         name: `ottobot-${sessionId}`,
-        Image: "ottobot-mock-agent" || CONFIG.container.agentImage,
+        Image: CONFIG.container.agentImage || "ottobot-mock-agent",
         Hostname: sessionId,
         Env: [
           `SESSION_ID=${sessionId}`,
@@ -36,7 +36,7 @@ export class ContainerManager {
           Memory: this.parseMemoryLimit(CONFIG.container.memoryLimit),
           CpuShares: Math.floor(CONFIG.container.cpuLimit * 1024),
           AutoRemove: false,
-          NetworkMode: CONFIG.container.network,
+          NetworkMode: "bridge", // Use bridge network for proper port mapping
           PortBindings: {
             "6080/tcp": [{ HostPort: vncPort.toString() }],
           },
@@ -85,11 +85,12 @@ export class ContainerManager {
       const container = this.docker.getContainer(containerId);
       await container.stop({ t: 10 }); // 10 second timeout
       logger.info(`Stopped container ${containerId}`);
-    } catch (error) {
+    } catch (error: any) {
       if (error.statusCode === 304) {
         logger.info(`Container ${containerId} already stopped`);
       } else {
-        logger.error(`Failed to stop container ${containerId}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to stop container ${containerId}:`, errorMessage);
         throw error;
       }
     }
@@ -100,11 +101,12 @@ export class ContainerManager {
       const container = this.docker.getContainer(containerId);
       await container.remove({ force: true });
       logger.info(`Removed container ${containerId}`);
-    } catch (error) {
+    } catch (error: any) {
       if (error.statusCode === 404) {
         logger.info(`Container ${containerId} already removed`);
       } else {
-        logger.error(`Failed to remove container ${containerId}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to remove container ${containerId}:`, errorMessage);
         throw error;
       }
     }
@@ -136,15 +138,26 @@ export class ContainerManager {
           throw new Error(`Container is not running: ${status}`);
         }
 
-        // Check if VNC port is accessible
-        const response = await fetch(`http://localhost:${vncPort}/vnc.html`, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(1000),
-        });
-
-        if (response.ok) {
-          logger.info(`VNC on port ${vncPort} is ready`);
+        // Check if VNC port is accessible by trying to connect to websockify
+        try {
+          const response = await fetch(`http://localhost:${vncPort}/vnc.html`, {
+            method: "HEAD", // Use HEAD to avoid downloading the page
+            signal: AbortSignal.timeout(2000),
+          });
+          // If we get any response (even 404), websockify is responding
+          logger.info(`VNC websockify on port ${vncPort} is ready (status: ${response.status})`);
           return;
+        } catch (fetchError) {
+          // Check if it's a connection error vs HTTP error
+          const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+          const errorName = fetchError instanceof Error ? fetchError.name : 'Unknown';
+          if (errorName === 'TypeError' && errorMessage.includes('fetch')) {
+            // Port not accessible yet
+            throw new Error(`Port ${vncPort} not accessible yet`);
+          }
+          // Other errors might still indicate the service is running
+          logger.debug(`VNC check attempt ${i + 1}: ${errorMessage}`);
+          throw fetchError;
         }
       } catch (error) {
         // Expected to fail initially
@@ -238,6 +251,9 @@ export class ContainerManager {
     }
 
     const [, value, unit] = match;
+    if (!unit || !value) {
+      throw new Error(`Invalid memory limit format: ${limit}`);
+    }
     return parseInt(value, 10) * units[unit as keyof typeof units];
   }
 

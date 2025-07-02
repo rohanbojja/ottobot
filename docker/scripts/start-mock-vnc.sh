@@ -14,10 +14,11 @@ x11vnc -display :1 -rfbport 5901 -nopw -shared -forever &
 sleep 2
 
 # Start websockify for web access
-websockify 6080 localhost:5901 &
+echo "Starting websockify on port ${NOVNC_PORT:-6080}..."
+websockify --web /usr/share/novnc ${NOVNC_PORT:-6080} localhost:5901 &
 
 # Keep container running
-echo "Mock agent started - VNC available on port 6080"
+echo "Mock agent started - VNC available on port ${NOVNC_PORT:-6080}"
 while true; do
   echo "Mock agent running at $(date)"
   sleep 30

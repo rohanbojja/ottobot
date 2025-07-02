@@ -31,7 +31,7 @@ export interface SessionResponse {
 }
 
 export interface ChatMessage {
-  type: 'user_prompt' | 'agent_response' | 'agent_thinking' | 'agent_action' | 'system_update' | 'download_ready';
+  type: 'user_prompt' | 'agent_response' | 'agent_thinking' | 'agent_action' | 'system_update' | 'download_ready' | 'error';
   content: string;
   timestamp: number;
   metadata?: {
@@ -39,6 +39,7 @@ export interface ChatMessage {
     progress?: number;
     download_url?: string;
     error?: string;
+    vnc_ready?: boolean;
   };
 }
 
