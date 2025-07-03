@@ -6,11 +6,13 @@ OttoBot is an interactive coding agent platform where users create persistent co
 
 - **Interactive Coding Sessions**: Create isolated development environments with AI assistance
 - **Real-time VNC Access**: Watch the AI agent work in a full desktop environment
-- **WebSocket Chat**: Communicate with the agent in real-time
+- **WebSocket Chat**: Communicate with the agent in real-time with smooth auto-scrolling
 - **Container Isolation**: Each session runs in its own Docker container
 - **MCP Architecture**: Secure tool execution via Model Context Protocol
+- **Agent Recovery**: Automatic agent restart when agents are lost or disconnected
+- **Multi-Model Support**: Choose from OpenAI GPT, Google Gemini, or Anthropic Claude
 - **Horizontal Scalability**: Multiple worker processes for handling concurrent sessions
-- **File Downloads**: Package and download completed projects
+- **Smart Downloads**: Download workspace with descriptive timestamped filenames
 
 ## Architecture
 
@@ -36,7 +38,7 @@ User → API Server (Elysia) → Worker Processes (back pressure agent runtime[f
 - **Runtime**: Bun + TypeScript
 - **API Framework**: Elysia with WebSocket support
 - **Queue**: BullMQ + Redis
-- **AI Agent**: LangGraph + Google Gemini
+- **AI Agent**: LangGraph + Multi-Model Support (OpenAI GPT, Google Gemini, Anthropic Claude)
 - **Containers**: Docker with VNC access + MCP server
 - **MCP**: Model Context Protocol for secure agent-container communication
 - **Development Environment**: Ubuntu + VSCode + full dev tools
@@ -48,7 +50,7 @@ User → API Server (Elysia) → Worker Processes (back pressure agent runtime[f
 - Docker and Docker Compose
 - Bun runtime
 - Redis (or use Docker Compose)
-- Google Gemini API key
+- LLM API key (OpenAI, Google Gemini, or Anthropic)
 
 ### Installation
 
@@ -68,9 +70,15 @@ bun install
 cp .env.example .env
 ```
 
-4. Configure your `.env` file:
+4. Configure your `.env` file with your preferred LLM:
 ```env
-GEMINI_API_KEY=your_api_key_here
+# Choose one or more:
+OPENAI_API_KEY=your_openai_key_here
+GEMINI_API_KEY=your_gemini_key_here  
+ANTHROPIC_API_KEY=your_anthropic_key_here
+
+# Set default model
+LLM_MODEL=gpt-4.1-nano  # or gemini-1.5-flash, claude-3-5-sonnet-20241022
 ```
 
 ### Running with Docker Compose
@@ -91,7 +99,7 @@ docker-compose down
 **Prerequisites:**
 - Docker must be installed and running
 - Bun runtime installed
-- Google Gemini API key
+- LLM API key (OpenAI, Google Gemini, or Anthropic)
 
 **Step-by-step setup:**
 
@@ -181,10 +189,11 @@ ws.send(JSON.stringify({
 
 Open the VNC URL in your browser to watch the agent work in real-time.
 
-### Download Project (not implemented)
+### Download Session Workspace
 
 ```bash
-curl -O http://localhost:3000/download/abc123/project.zip
+curl -O http://localhost:3000/download/abc123
+# Downloads: ottobot-session-abc123-20240101T120000.zip
 ```
 
 ## API Endpoints
@@ -194,7 +203,7 @@ curl -O http://localhost:3000/download/abc123/project.zip
 - `DELETE /session/:id` - Terminate session
 - `GET /session/:id/logs` - Get session logs
 - `WS /session/:id/chat` - WebSocket chat endpoint
-- `GET /download/:id/:file` - Download session artifacts
+- `GET /download/:id` - Download session workspace as zip
 - `GET /health` - System health check
 - `GET /metrics` - System metrics
 
@@ -287,6 +296,24 @@ bun run lint
    - Metrics at `/metrics`
    - Container resource monitoring
    - Session analytics
+
+## Recent Improvements
+
+- ✅ **Agent Recovery System**: Automatic agent restart when agents are lost or disconnected
+- ✅ **Fixed Streaming Chat**: Resolved LangGraph streaming response processing
+- ✅ **Smooth Chat Interface**: Auto-scrolling chat with Tailwind CSS animations
+- ✅ **Enhanced Downloads**: Workspace downloads with descriptive timestamped filenames
+- ✅ **Multi-Model Support**: OpenAI GPT, Google Gemini, and Anthropic Claude integration
+- ✅ **Improved Error Handling**: Better session management and resource cleanup
+- ✅ **Frontend Enhancements**: Better button alignment and user experience
+
+## Planned Enhancements
+
+1. **Better Agent Workflow**: Implement plan → refine → execute cycle for more structured development
+2. **Model Selector**: UI component for choosing LLM model per session
+3. **Context Compression**: Smart context management for long conversations
+4. **VSCode MCP Integration**: Direct VS Code integration via Model Context Protocol
+5. **Puppeteer MCP**: Browser automation capabilities for web development tasks
 
 ## License
 

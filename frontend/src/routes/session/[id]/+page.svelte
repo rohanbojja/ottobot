@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { getSessionById } from '$lib/api/queries';
+	import { downloadApi } from '$lib/api/api';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from "$lib/components/ui/card/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
@@ -218,18 +219,25 @@
 	}
 
 	// Download session function
-	function downloadSession() {
+	async function downloadSession() {
 		if ($sessionQuery.data?.session_id) {
-			const downloadUrl = `/api/download/${$sessionQuery.data.session_id}`;
-			
-			// Create a temporary link to trigger download
-			const link = document.createElement('a');
-			link.href = downloadUrl;
-			link.download = `ottobot-session-${$sessionQuery.data.session_id}.zip`;
-			link.style.display = 'none';
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
+			try {
+				const blob = await downloadApi.downloadSession($sessionQuery.data.session_id);
+				
+				// Create a temporary link to trigger download
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = `ottobot-session-${$sessionQuery.data.session_id}.zip`;
+				link.style.display = 'none';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(url);
+			} catch (error) {
+				console.error('Download failed:', error);
+				// Could add a toast notification here
+			}
 		}
 	}
 

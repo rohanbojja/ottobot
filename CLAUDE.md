@@ -38,7 +38,7 @@ The coding agent now uses the **Model Context Protocol (MCP)** for secure tool e
 - **Backend**: Elysia (not Express/Fastify) with OpenAPI/Swagger
 - **Frontend**: SvelteKit with TanStack Query and shadcn-svelte
 - **Queue**: BullMQ with Redis
-- **AI**: LangGraph (TypeScript) + Anthropic Claude
+- **AI**: LangGraph (TypeScript) + Multi-Model Support (OpenAI GPT, Google Gemini, Anthropic Claude)
 - **Containers**: Docker with VNC access via noVNC + MCP server for tool execution
 - **WebSocket**: Real-time communication with pub/sub via Redis
 - **MCP**: Model Context Protocol for secure agent-container interaction
@@ -291,7 +291,10 @@ When making changes, ensure:
 
 Key environment variables that must be set:
 
-- `ANTHROPIC_API_KEY` - Required for AI agent
+- `OPENAI_API_KEY` - Required for OpenAI models (GPT-4, etc.)
+- `GEMINI_API_KEY` - Required for Google Gemini models  
+- `ANTHROPIC_API_KEY` - Required for Anthropic Claude models
+- `LLM_MODEL` - Default model to use (e.g., gpt-4.1-nano, gemini-1.5-flash)
 - `MODE` - Either 'api' or 'worker'
 - `REDIS_HOST/PORT` - Redis connection
 - `CONTAINER_NETWORK` - Docker network name
@@ -332,6 +335,11 @@ The complete session creation and interaction flow:
 - ✅ Created session page with VNC viewer and chat interface
 - ✅ Fixed theme toggle and workspace store in frontend
 - ✅ Improved error handling and status management
+- ✅ Agent recovery and reconnection system for lost agents
+- ✅ Fixed LangGraph streaming response processing
+- ✅ Smooth chat auto-scrolling with Tailwind CSS animations
+- ✅ Enhanced download system with descriptive timestamped filenames
+- ✅ Multi-model LLM support (OpenAI, Gemini, Anthropic)
 
 ## API Endpoints
 
@@ -347,7 +355,7 @@ The complete session creation and interaction flow:
 - `GET /health/metrics` - System metrics
 
 ### Downloads
-- `GET /download/:id/:file` - Download session artifacts
+- `GET /download/:id` - Download session workspace as zip
 
 ### WebSocket
 - `WS /session/:id/chat` - Real-time chat with agent
@@ -365,3 +373,7 @@ The complete session creation and interaction flow:
 - Container startup: allocate ports → create container → start → wait for VNC → start agent with MCP connection
 - Each session gets dedicated port pair: VNC for UI access, MCP for agent tools
 - Architecture evolution: v1.0 (agents in workers) → v2.0 (dedicated agent pool)
+- Agent recovery automatically restarts lost agents when messages are processed
+- Chat auto-scrolls smoothly on new messages using Tailwind CSS animations
+- Downloads include session ID and timestamp in filename for easy identification
+- Multiple LLM providers supported via config (OpenAI, Gemini, Anthropic)

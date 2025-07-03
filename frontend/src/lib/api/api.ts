@@ -41,6 +41,11 @@ export const sessionApi = {
 };
 
 export const downloadApi = {
+  downloadSession: (sessionId: string): Promise<Blob> =>
+    apiClient.get(`/download/${sessionId}`, {
+      responseType: 'blob'
+    }).then(res => res.data),
+    
   downloadFile: (sessionId: string, filename: string): Promise<Blob> =>
     apiClient.get(`/download/${sessionId}/${filename}`, {
       responseType: 'blob'

@@ -4,6 +4,7 @@
   import * as Card from "$lib/components/ui/card/index.js";
   import { getSessionStatusColor } from "$lib/utils.js";
   import { createHealthQuery, createMetricsQuery, createSessionMutation, createDeleteSessionMutation, sessionApi } from "$lib/api/queries.js";
+  import { downloadApi } from "$lib/api/api.js";
   import { createQuery } from "@tanstack/svelte-query";
 
   // Use real API queries
@@ -64,18 +65,26 @@
     window.open(vncUrl, '_blank');
   }
 
-  function downloadSession(sessionId: string, event: Event) {
+  async function downloadSession(sessionId: string, event: Event) {
     event.stopPropagation(); // Prevent card click
-    const downloadUrl = `/api/download/${sessionId}`;
     
-    // Create a temporary link to trigger download
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `ottobot-session-${sessionId}.zip`;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const blob = await downloadApi.downloadSession(sessionId);
+      
+      // Create a temporary link to trigger download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ottobot-session-${sessionId}.zip`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      // Could add a toast notification here
+    }
   }
   
   // Refresh session list after creating a new session
