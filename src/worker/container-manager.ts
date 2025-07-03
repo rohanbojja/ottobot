@@ -24,7 +24,7 @@ export class ContainerManager {
       // Build container configuration
       const config: Docker.ContainerCreateOptions = {
         name: `ottobot-${sessionId}`,
-        Image: CONFIG.container.agentImage || "ottobot-mock-agent",
+        Image: CONFIG.container.agentImage || "ottobot-agent",
         Hostname: sessionId,
         Env: [
           `SESSION_ID=${sessionId}`,

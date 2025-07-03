@@ -50,7 +50,7 @@ export const CONFIG = {
     mcpPortRangeStart: parseInt(process.env.MCP_PORT_RANGE_START || "8080", 10),
     mcpPortRangeEnd: parseInt(process.env.MCP_PORT_RANGE_END || "8200", 10),
     network: process.env.CONTAINER_NETWORK || "ottobot-network",
-    agentImage: process.env.AGENT_IMAGE || "ottobot-mock-agent",
+    agentImage: process.env.AGENT_IMAGE || "ottobot-agent",
   },
 
   // Security Configuration

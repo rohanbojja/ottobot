@@ -105,7 +105,7 @@ docker-compose down
 
 1. **Build the development agent image:**
 ```bash
-docker build -f docker/Dockerfile.mock-agent -t ottobot-dev-agent .
+docker build -f docker/Dockerfile.agent -t ottobot-agent .
 ```
 
 2. **Start Redis using Docker Compose:**

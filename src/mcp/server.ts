@@ -124,6 +124,37 @@ async function executeCommand(command: string, cwd?: string): Promise<string> {
   }
 }
 
+async function executeCommandAsync(command: string, cwd?: string): Promise<string> {
+  const workingDir = cwd ? resolvePath(cwd) : WORKSPACE_DIR;
+
+  try {
+    console.log(`Executing async command: ${command} in ${workingDir}`);
+
+    // Launch command in background without waiting for completion
+    const child = spawn('bash', ['-c', command], {
+      cwd: workingDir,
+      stdio: 'ignore', // Detach from stdio to prevent blocking
+      detached: true, // Allow process to continue running independently
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+
+    // Don't wait for the process to complete
+    child.unref(); // Allow Node.js to exit even if this process is still running
+
+    const pid = child.pid;
+    console.log(`Async command launched with PID: ${pid}`);
+
+    return [
+      `Command launched asynchronously: ${command}`,
+      `Working directory: ${workingDir}`,
+      `Process ID: ${pid}`,
+      `Note: Command is running in background and will not block further operations`,
+    ].join('\n');
+  } catch (error) {
+    throw new Error(`Async command execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
 async function createDirectory(dirPath: string): Promise<string> {
   const fullPath = resolvePath(dirPath);
 
@@ -166,6 +197,388 @@ async function openVSCode(targetPath: string): Promise<string> {
     return `Opened ${targetPath} in VS Code`;
   } catch (error) {
     throw new Error(`Failed to open VS Code: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// GUI Automation Functions using xdotool
+async function guiClick(x: number, y: number): Promise<string> {
+  try {
+    execSync(`xdotool mousemove ${x} ${y} click 1`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Clicked at coordinates (${x}, ${y})`;
+  } catch (error) {
+    throw new Error(`Failed to click at (${x}, ${y}): ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function guiType(text: string): Promise<string> {
+  try {
+    // Escape special characters for shell safety
+    const escapedText = text.replace(/'/g, "'\"'\"'");
+    execSync(`xdotool type '${escapedText}'`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Typed text: ${text}`;
+  } catch (error) {
+    throw new Error(`Failed to type text: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function guiKey(key: string): Promise<string> {
+  try {
+    // Support common key combinations and special keys
+    const validKeys = ['Return', 'Tab', 'Escape', 'BackSpace', 'Delete', 'Home', 'End', 'Page_Up', 'Page_Down', 
+                      'Left', 'Right', 'Up', 'Down', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+                      'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+a', 'ctrl+s', 'alt+Tab'];
+    
+    execSync(`xdotool key ${key}`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Sent key: ${key}`;
+  } catch (error) {
+    throw new Error(`Failed to send key ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function guiScreenshot(): Promise<string> {
+  try {
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const screenshotPath = path.join(WORKSPACE_DIR, `screenshot-${timestamp}.png`);
+    
+    execSync(`scrot '${screenshotPath}'`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    
+    return `Screenshot saved to ${screenshotPath}`;
+  } catch (error) {
+    throw new Error(`Failed to take screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function guiGetWindowInfo(): Promise<string> {
+  try {
+    // Get active window information
+    const activeWindowId = execSync('xdotool getactivewindow', {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    }).trim();
+    
+    const windowName = execSync(`xdotool getwindowname ${activeWindowId}`, {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    }).trim();
+    
+    const windowGeometry = execSync(`xdotool getwindowgeometry ${activeWindowId}`, {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    }).trim();
+    
+    return `Active Window Info:\nID: ${activeWindowId}\nName: ${windowName}\nGeometry: ${windowGeometry}`;
+  } catch (error) {
+    throw new Error(`Failed to get window info: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function guiFindWindow(namePattern: string): Promise<string> {
+  try {
+    const windowIds = execSync(`xdotool search --name "${namePattern}"`, {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    }).trim().split('\n').filter(id => id.length > 0);
+    
+    if (windowIds.length === 0) {
+      return `No windows found matching pattern: ${namePattern}`;
+    }
+    
+    let result = `Found ${windowIds.length} window(s) matching "${namePattern}":\n`;
+    for (const id of windowIds) {
+      try {
+        const name = execSync(`xdotool getwindowname ${id}`, {
+          env: { ...process.env, DISPLAY: ':1' },
+          encoding: 'utf8'
+        }).trim();
+        result += `- ID: ${id}, Name: ${name}\n`;
+      } catch (e) {
+        result += `- ID: ${id}, Name: <unknown>\n`;
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    throw new Error(`Failed to find windows: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function guiActivateWindow(windowId: string): Promise<string> {
+  try {
+    execSync(`xdotool windowactivate ${windowId}`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Activated window with ID: ${windowId}`;
+  } catch (error) {
+    throw new Error(`Failed to activate window ${windowId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function listProcesses(): Promise<string> {
+  try {
+    const output = execSync('ps aux --no-headers', {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    });
+    
+    // Filter to show only interesting processes (exclude kernel threads and system processes)
+    const lines = output.split('\n').filter(line => {
+      if (!line.trim()) return false;
+      // Show GUI apps, user processes, and development tools
+      return line.includes('code') || 
+             line.includes('terminal') || 
+             line.includes('xfce') ||
+             line.includes('xterm') ||
+             line.includes('browser') ||
+             line.includes('node') ||
+             line.includes('python') ||
+             line.includes('/bin/bash') ||
+             line.includes('developer');
+    });
+    
+    if (lines.length === 0) {
+      return 'No user processes found';
+    }
+    
+    let result = 'Running User Processes:\n';
+    result += 'PID     CPU% MEM% COMMAND\n';
+    result += '------- ---- ---- -------\n';
+    
+    for (const line of lines.slice(0, 20)) { // Limit to 20 processes
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 11) {
+        const pid = parts[1];
+        const cpu = parts[2];
+        const mem = parts[3];
+        const command = parts.slice(10).join(' ').substring(0, 50); // Truncate long commands
+        result += `${pid.padEnd(7)} ${cpu.padEnd(4)} ${mem.padEnd(4)} ${command}\n`;
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    throw new Error(`Failed to list processes: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function killProcess(pid: string): Promise<string> {
+  try {
+    // First verify the process exists and belongs to developer user
+    try {
+      const checkOutput = execSync(`ps -p ${pid} -o user=`, {
+        encoding: 'utf8'
+      }).trim();
+      
+      if (checkOutput !== 'developer') {
+        throw new Error(`Process ${pid} does not belong to developer user or does not exist`);
+      }
+    } catch (checkError) {
+      throw new Error(`Process ${pid} not found or not accessible`);
+    }
+    
+    // Kill the process
+    execSync(`kill ${pid}`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    
+    return `Process ${pid} terminated successfully`;
+  } catch (error) {
+    throw new Error(`Failed to kill process ${pid}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// Window Tiling and Management Functions
+async function getScreenResolution(): Promise<{ width: number; height: number }> {
+  try {
+    const output = execSync('xdpyinfo | grep dimensions', {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    });
+    
+    // Parse output like "dimensions:    1920x1080 pixels"
+    const match = output.match(/(\d+)x(\d+)/);
+    if (match) {
+      return {
+        width: parseInt(match[1]),
+        height: parseInt(match[2])
+      };
+    }
+    
+    // Fallback to common resolution
+    return { width: 1920, height: 1080 };
+  } catch (error) {
+    // Fallback resolution
+    return { width: 1920, height: 1080 };
+  }
+}
+
+async function moveWindow(windowId: string, x: number, y: number): Promise<string> {
+  try {
+    execSync(`xdotool windowmove ${windowId} ${x} ${y}`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Moved window ${windowId} to position (${x}, ${y})`;
+  } catch (error) {
+    throw new Error(`Failed to move window: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function resizeWindow(windowId: string, width: number, height: number): Promise<string> {
+  try {
+    execSync(`xdotool windowsize ${windowId} ${width} ${height}`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Resized window ${windowId} to ${width}x${height}`;
+  } catch (error) {
+    throw new Error(`Failed to resize window: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function tileWindowLeft(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    const width = Math.floor(screen.width / 2);
+    const height = screen.height;
+    
+    // Move to left half
+    await moveWindow(windowId, 0, 0);
+    await resizeWindow(windowId, width, height);
+    
+    return `Tiled window ${windowId} to left half of screen (${width}x${height})`;
+  } catch (error) {
+    throw new Error(`Failed to tile window left: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function tileWindowRight(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    const width = Math.floor(screen.width / 2);
+    const height = screen.height;
+    const x = screen.width - width;
+    
+    // Move to right half
+    await moveWindow(windowId, x, 0);
+    await resizeWindow(windowId, width, height);
+    
+    return `Tiled window ${windowId} to right half of screen (${width}x${height})`;
+  } catch (error) {
+    throw new Error(`Failed to tile window right: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function tileWindowTopLeft(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    const width = Math.floor(screen.width / 2);
+    const height = Math.floor(screen.height / 2);
+    
+    await moveWindow(windowId, 0, 0);
+    await resizeWindow(windowId, width, height);
+    
+    return `Tiled window ${windowId} to top-left quarter (${width}x${height})`;
+  } catch (error) {
+    throw new Error(`Failed to tile window top-left: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function tileWindowTopRight(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    const width = Math.floor(screen.width / 2);
+    const height = Math.floor(screen.height / 2);
+    const x = screen.width - width;
+    
+    await moveWindow(windowId, x, 0);
+    await resizeWindow(windowId, width, height);
+    
+    return `Tiled window ${windowId} to top-right quarter (${width}x${height})`;
+  } catch (error) {
+    throw new Error(`Failed to tile window top-right: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function tileWindowBottomLeft(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    const width = Math.floor(screen.width / 2);
+    const height = Math.floor(screen.height / 2);
+    const y = screen.height - height;
+    
+    await moveWindow(windowId, 0, y);
+    await resizeWindow(windowId, width, height);
+    
+    return `Tiled window ${windowId} to bottom-left quarter (${width}x${height})`;
+  } catch (error) {
+    throw new Error(`Failed to tile window bottom-left: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function tileWindowBottomRight(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    const width = Math.floor(screen.width / 2);
+    const height = Math.floor(screen.height / 2);
+    const x = screen.width - width;
+    const y = screen.height - height;
+    
+    await moveWindow(windowId, x, y);
+    await resizeWindow(windowId, width, height);
+    
+    return `Tiled window ${windowId} to bottom-right quarter (${width}x${height})`;
+  } catch (error) {
+    throw new Error(`Failed to tile window bottom-right: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+
+async function minimizeWindow(windowId: string): Promise<string> {
+  try {
+    execSync(`xdotool windowminimize ${windowId}`, {
+      env: { ...process.env, DISPLAY: ':1' }
+    });
+    return `Minimized window ${windowId}`;
+  } catch (error) {
+    throw new Error(`Failed to minimize window: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+async function centerWindow(windowId: string): Promise<string> {
+  try {
+    const screen = await getScreenResolution();
+    
+    // Get current window size
+    const sizeOutput = execSync(`xdotool getwindowgeometry ${windowId}`, {
+      env: { ...process.env, DISPLAY: ':1' },
+      encoding: 'utf8'
+    });
+    
+    // Parse geometry like "Geometry: 800x600"
+    const match = sizeOutput.match(/Geometry: (\d+)x(\d+)/);
+    let windowWidth = 800;
+    let windowHeight = 600;
+    
+    if (match) {
+      windowWidth = parseInt(match[1]);
+      windowHeight = parseInt(match[2]);
+    }
+    
+    // Center the window
+    const x = Math.floor((screen.width - windowWidth) / 2);
+    const y = Math.floor((screen.height - windowHeight) / 2);
+    
+    await moveWindow(windowId, x, y);
+    
+    return `Centered window ${windowId} at (${x}, ${y})`;
+  } catch (error) {
+    throw new Error(`Failed to center window: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -367,6 +780,21 @@ const app = new Elysia()
         };
       });
 
+      server.tool('execute_command_async', {
+        command: z.string().describe('Command to execute asynchronously (non-blocking), e.g, xterm (GUI applications)'),
+        cwd: z.string().optional().describe('Working directory for the command')
+      }, async (args) => {
+        const result = await executeCommandAsync(args.command, args.cwd);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
       server.tool('create_directory', {
         path: z.string().describe('Path of the directory to create')
       }, async (args) => {
@@ -409,7 +837,275 @@ const app = new Elysia()
         };
       });
 
-      console.log('MCP Server tools registered');
+      // GUI Automation Tools
+      server.tool('gui_click', {
+        x: z.number().describe('X coordinate to click'),
+        y: z.number().describe('Y coordinate to click')
+      }, async (args) => {
+        const result = await guiClick(args.x, args.y);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('gui_type', {
+        text: z.string().describe('Text to type')
+      }, async (args) => {
+        const result = await guiType(args.text);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('gui_key', {
+        key: z.string().describe('Key or key combination to send (e.g., "Return", "ctrl+c", "alt+Tab")')
+      }, async (args) => {
+        const result = await guiKey(args.key);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('gui_screenshot', {}, async () => {
+        const result = await guiScreenshot();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('gui_get_window_info', {}, async () => {
+        const result = await guiGetWindowInfo();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('gui_find_window', {
+        namePattern: z.string().describe('Pattern to search for in window names')
+      }, async (args) => {
+        const result = await guiFindWindow(args.namePattern);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('gui_activate_window', {
+        windowId: z.string().describe('Window ID to activate')
+      }, async (args) => {
+        const result = await guiActivateWindow(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      // Process Management Tools
+      server.tool('list_processes', {}, async () => {
+        const result = await listProcesses();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('kill_process', {
+        pid: z.string().describe('Process ID to terminate')
+      }, async (args) => {
+        const result = await killProcess(args.pid);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      // Window Tiling Tools
+      server.tool('move_window', {
+        windowId: z.string().describe('Window ID to move'),
+        x: z.number().describe('X coordinate'),
+        y: z.number().describe('Y coordinate')
+      }, async (args) => {
+        const result = await moveWindow(args.windowId, args.x, args.y);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('resize_window', {
+        windowId: z.string().describe('Window ID to resize'),
+        width: z.number().describe('Window width'),
+        height: z.number().describe('Window height')
+      }, async (args) => {
+        const result = await resizeWindow(args.windowId, args.width, args.height);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('tile_window_left', {
+        windowId: z.string().describe('Window ID to tile to left half')
+      }, async (args) => {
+        const result = await tileWindowLeft(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('tile_window_right', {
+        windowId: z.string().describe('Window ID to tile to right half')
+      }, async (args) => {
+        const result = await tileWindowRight(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('tile_window_top_left', {
+        windowId: z.string().describe('Window ID to tile to top-left quarter')
+      }, async (args) => {
+        const result = await tileWindowTopLeft(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('tile_window_top_right', {
+        windowId: z.string().describe('Window ID to tile to top-right quarter')
+      }, async (args) => {
+        const result = await tileWindowTopRight(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('tile_window_bottom_left', {
+        windowId: z.string().describe('Window ID to tile to bottom-left quarter')
+      }, async (args) => {
+        const result = await tileWindowBottomLeft(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('tile_window_bottom_right', {
+        windowId: z.string().describe('Window ID to tile to bottom-right quarter')
+      }, async (args) => {
+        const result = await tileWindowBottomRight(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('minimize_window', {
+        windowId: z.string().describe('Window ID to minimize')
+      }, async (args) => {
+        const result = await minimizeWindow(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      server.tool('center_window', {
+        windowId: z.string().describe('Window ID to center on screen')
+      }, async (args) => {
+        const result = await centerWindow(args.windowId);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: result
+            }
+          ]
+        };
+      });
+
+      console.log('MCP Server tools registered (including GUI automation, process management, and window tiling)');
     }
   }))
   .listen(PORT);
