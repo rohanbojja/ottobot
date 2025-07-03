@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { execSync, spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
+import archiver from 'archiver';
 
 const PORT = process.env['MCP_PORT'] || 8080;
 const WORKSPACE_DIR = '/home/developer/workspace';
+const SESSION_ID = process.env['SESSION_ID'] || 'unknown';
 
 // Helper function to resolve paths safely within workspace
 function resolvePath(filePath: string): string {
@@ -172,7 +174,124 @@ const app = new Elysia()
   // Add a health check endpoint for debugging
   .get('/', () => ({ status: 'MCP Server running', port: PORT }))
   .get('/health', () => ({ status: 'healthy', timestamp: new Date().toISOString() }))
-  
+  .get("/download", async ({ set }) => {
+    try {
+      console.log('Creating zip archive of workspace...');
+      console.log('Workspace directory:', WORKSPACE_DIR);
+      console.log('Session ID:', SESSION_ID);
+      
+      // Generate a descriptive filename
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+      const filename = `ottobot-session-${SESSION_ID}-${timestamp}.zip`;
+      
+      // Debug: Check home directory
+      try {
+        const homeFiles = await fs.readdir('/home/developer');
+        console.log('Files in /home/developer:', homeFiles);
+      } catch (err) {
+        console.error('Error reading home directory:', err);
+      }
+      
+      // Check if workspace directory exists, create if it doesn't
+      try {
+        const stats = await fs.stat(WORKSPACE_DIR);
+        console.log('Workspace exists:', stats.isDirectory());
+      } catch (err: any) {
+        if (err.code === 'ENOENT') {
+          console.log('Workspace directory does not exist, creating it...');
+          try {
+            await fs.mkdir(WORKSPACE_DIR, { recursive: true });
+            console.log('Workspace directory created successfully');
+          } catch (createErr) {
+            console.error('Error creating workspace directory:', createErr);
+            throw new Error('Failed to create workspace directory');
+          }
+        } else {
+          console.error('Error checking workspace:', err);
+          throw new Error('Workspace directory not accessible');
+        }
+      }
+      
+      // List files in workspace
+      let fileCount = 0;
+      try {
+        const files = await fs.readdir(WORKSPACE_DIR);
+        fileCount = files.length;
+        console.log('Files in workspace:', files);
+        
+        if (files.length === 0) {
+          console.log('Workspace is empty, creating empty zip');
+        }
+      } catch (err) {
+        console.error('Error reading workspace directory:', err);
+        // Continue anyway, we'll create an empty zip
+      }
+      
+      // Set proper headers for download
+      set.headers['Content-Type'] = 'application/zip';
+      set.headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+      set.headers['X-File-Count'] = fileCount.toString();
+      set.headers['X-Session-ID'] = SESSION_ID;
+      
+      // Create zip in memory using Node.js archiver
+      return new Promise((resolve, reject) => {
+        const archive = archiver('zip', {
+          zlib: { level: 9 } // Sets the compression level
+        });
+
+        const chunks: Buffer[] = [];
+        let hasError = false;
+
+        archive.on('data', (chunk) => {
+          chunks.push(chunk);
+        });
+
+        archive.on('end', () => {
+          if (hasError) return; // Don't proceed if there was an error
+          
+          console.log(`Archive created: ${archive.pointer()} total bytes`);
+          console.log(`Filename: ${filename}`);
+          const buffer = Buffer.concat(chunks);
+          console.log(`Final buffer size: ${buffer.length} bytes`);
+          
+          // Set final content length
+          set.headers['Content-Length'] = buffer.length.toString();
+          
+          resolve(buffer);
+        });
+
+        archive.on('error', (err) => {
+          hasError = true;
+          console.error('Archive error:', err);
+          reject(err);
+        });
+
+        archive.on('warning', (err) => {
+          console.warn('Archive warning:', err);
+        });
+
+        // Add all files from workspace directory
+        archive.glob('**/*', {
+          cwd: WORKSPACE_DIR,
+          dot: true // Include hidden files
+        });
+
+        console.log('Finalizing archive...');
+        archive.finalize().catch((err) => {
+          hasError = true;
+          console.error('Error finalizing archive:', err);
+          reject(err);
+        });
+      });
+    } catch (error) {
+      console.error('Download endpoint error:', error);
+      throw error;
+    }
+  }, {
+    response: {
+      'application/octet-stream': 'File'
+    }
+  })
   // Use the MCP plugin with basePath
   .use(mcp({
     basePath: '/mcp',

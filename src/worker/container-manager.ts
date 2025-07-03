@@ -24,7 +24,7 @@ export class ContainerManager {
       // Build container configuration
       const config: Docker.ContainerCreateOptions = {
         name: `ottobot-${sessionId}`,
-        Image: CONFIG.container.agentImage || "ottobot-dev-agent",
+        Image: CONFIG.container.agentImage || "ottobot-mock-agent",
         Hostname: sessionId,
         Env: [
           `SESSION_ID=${sessionId}`,
@@ -124,6 +124,16 @@ export class ContainerManager {
     } catch (error) {
       logger.error(`Failed to get container status ${containerId}:`, error);
       throw error;
+    }
+  }
+
+  async isContainerRunning(containerId: string): Promise<boolean> {
+    try {
+      const status = await this.getContainerStatus(containerId);
+      return status === 'running';
+    } catch (error) {
+      logger.debug(`Container ${containerId} is not accessible:`, error);
+      return false;
     }
   }
 
@@ -305,7 +315,7 @@ export class ContainerManager {
       }
 
       const mcpPortBinding = info.NetworkSettings.Ports['8080/tcp'];
-      if (mcpPortBinding && mcpPortBinding.length > 0) {
+      if (mcpPortBinding && mcpPortBinding.length > 0 && mcpPortBinding[0]) {
         const hostPort = mcpPortBinding[0].HostPort;
         return hostPort ? parseInt(hostPort, 10) : null;
       }

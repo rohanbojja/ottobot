@@ -4,7 +4,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from "$lib/components/ui/card/index.js";
 	import { ScrollArea } from "$lib/components/ui/scroll-area/index.js";
-	import { ExternalLink, Loader2, Send, Terminal } from '@lucide/svelte/icons';
+	import { ExternalLink, Loader2, Send, Terminal, Download } from '@lucide/svelte/icons';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, onMount } from 'svelte';
 
@@ -21,11 +21,7 @@
 	let ws: WebSocket | null = null;
 	let vncLoaded = $state(false);
 	let reconnectTimeout: number | null = null;
-	let chatContainer: HTMLElement;
-
-	// Chat scroll state
-	let isAtBottom = $state(true);
-	let showScrollButton = $state(false);
+	let messagesContainer: HTMLElement;
 
 	// Query session details
 	const sessionQuery = createQuery({
@@ -161,12 +157,10 @@
 			timestamp: new Date().toISOString()
 		}];
 
-		// Auto-scroll to bottom only if user is at bottom
+		// Always auto-scroll to bottom on new messages
 		setTimeout(() => {
-			if (isAtBottom) {
-				scrollToBottom();
-			}
-		}, 10);
+			scrollToBottom();
+		}, 150);
 	}
 
 	function sendMessage() {
@@ -189,23 +183,21 @@
 		ws.send(JSON.stringify(message));
 
 		chatInput = '';
+		
+		// Scroll to bottom after sending message
+		setTimeout(() => {
+			scrollToBottom();
+		}, 50);
 	}
 
 	// Scroll functions
 	function scrollToBottom() {
-		if (chatContainer) {
-			chatContainer.scrollTop = chatContainer.scrollHeight;
-			isAtBottom = true;
-			showScrollButton = false;
+		if (messagesContainer) {
+			messagesContainer.scrollIntoView({ 
+				behavior: 'smooth', 
+				block: 'end' 
+			});
 		}
-	}
-
-	function handleScroll(event: Event) {
-		const target = event.target as HTMLElement;
-		const threshold = 50; // pixels from bottom
-
-		isAtBottom = target.scrollTop + target.clientHeight + threshold >= target.scrollHeight;
-		showScrollButton = !isAtBottom;
 	}
 
 	// VNC fullscreen function
@@ -222,6 +214,22 @@
 			} else {
 				alert('Please allow popups to open VNC in fullscreen mode');
 			}
+		}
+	}
+
+	// Download session function
+	function downloadSession() {
+		if ($sessionQuery.data?.session_id) {
+			const downloadUrl = `/api/download/${$sessionQuery.data.session_id}`;
+			
+			// Create a temporary link to trigger download
+			const link = document.createElement('a');
+			link.href = downloadUrl;
+			link.download = `ottobot-session-${$sessionQuery.data.session_id}.zip`;
+			link.style.display = 'none';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
 		}
 	}
 
@@ -322,18 +330,29 @@
 								{/if}
 							</Card.CardDescription>
 						</div>
-						<!-- Fullscreen button -->
-						{#if $sessionQuery.data.vnc_url && ($sessionQuery.data.status === 'ready' || $sessionQuery.data.status === 'running')}
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={openVncFullscreen}
-								title="Open development environment in new window"
-							>
-								<ExternalLink class="h-4 w-4 mr-2" />
-								Open VNC
-							</Button>
-						{/if}
+						<!-- Action buttons -->
+						<div class="flex gap-2">
+							{#if $sessionQuery.data.vnc_url && ($sessionQuery.data.status === 'ready' || $sessionQuery.data.status === 'running')}
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={openVncFullscreen}
+									title="Open development environment in new window"
+								>
+									<ExternalLink class="h-4 w-4 mr-2" />
+									Open VNC
+								</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={downloadSession}
+									title="Download session workspace as zip"
+								>
+									<Download class="h-4 w-4 mr-2" />
+									Download
+								</Button>
+							{/if}
+						</div>
 					</div>
 				</Card.CardHeader>
 				<Card.CardContent class="flex-1 flex flex-col p-0 max-h-[calc(100%-6rem)]">
@@ -348,7 +367,9 @@
 								</div>
 							</div>
 						{/if}
-						<ScrollArea class="p-2 m-2 w-full" onscroll={handleScroll}>
+						<ScrollArea 
+							class="p-2 m-2 w-full scroll-smooth"
+						>
 							<!-- Always show initial prompt if available -->
 							{#if $sessionQuery.data.initial_prompt}
 								<div class="group relative p-3 mb-2 rounded-lg max-w-[85%] shadow-sm border bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700 ml-auto">
@@ -373,7 +394,7 @@
 								</div>
 							{/if}
 								{#each messages as message}
-									<div class={`group relative p-3 mb-2 rounded-lg max-w-[85%] shadow-sm border ${getMessageClass(message.type)}`}>
+									<div class={`group relative p-3 mb-2 rounded-lg max-w-[85%] shadow-sm border animate-in slide-in-from-bottom-2 fade-in-0 duration-300 ${getMessageClass(message.type)}`}>
 										<!-- Message type indicator -->
 										{#if message.type === 'user'}
 											<div class="text-xs font-medium text-blue-600 mb-1">You</div>
@@ -409,20 +430,9 @@
 										</div>
 									</div>
 								{/each}
+								<div bind:this={messagesContainer}></div>
 						</ScrollArea>
 
-						<!-- Scroll to bottom button -->
-						{#if showScrollButton}
-							<Button
-								class="absolute bottom-4 right-4 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
-								onclick={scrollToBottom}
-								title="Scroll to bottom"
-							>
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-								</svg>
-							</Button>
-						{/if}
 					</div>
 
 					<!-- Input -->

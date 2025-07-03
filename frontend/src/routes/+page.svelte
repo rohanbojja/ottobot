@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Activity, Zap, Monitor, Trash2, ExternalLink, Users } from "@lucide/svelte";
+  import { Plus, Activity, Zap, Monitor, Trash2, ExternalLink, Users, Download } from "@lucide/svelte";
   import * as Button from "$lib/components/ui/button/index.js";
   import * as Card from "$lib/components/ui/card/index.js";
   import { getSessionStatusColor } from "$lib/utils.js";
@@ -62,6 +62,20 @@
   function openVNC(vncUrl: string, event: Event) {
     event.stopPropagation(); // Prevent card click
     window.open(vncUrl, '_blank');
+  }
+
+  function downloadSession(sessionId: string, event: Event) {
+    event.stopPropagation(); // Prevent card click
+    const downloadUrl = `/api/download/${sessionId}`;
+    
+    // Create a temporary link to trigger download
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `ottobot-session-${sessionId}.zip`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
   
   // Refresh session list after creating a new session
@@ -278,30 +292,45 @@
               </Card.CardDescription>
             </Card.CardHeader>
             <Card.CardContent>
-              <div class="flex gap-2 justify-between">
-                <div class="flex gap-2">
+              <div class="flex flex-col gap-3">
+                <!-- Action buttons row -->
+                <div class="flex flex-wrap gap-2">
                   <Button.Button 
                     size="sm" 
                     variant="outline"
                     onclick={(e) => openVNC(session.vnc_url, e)}
                     disabled={session.status !== 'ready' && session.status !== 'running'}
+                    class="flex-1 min-w-0"
                   >
-                    <ExternalLink class="mr-2 h-3 w-3" />
+                    <ExternalLink class="mr-1 h-3 w-3" />
                     VNC
                   </Button.Button>
-                  <Button.Button size="sm" variant="ghost">
-                    View Details
+                  <Button.Button 
+                    size="sm" 
+                    variant="outline"
+                    onclick={(e) => downloadSession(session.session_id, e)}
+                    disabled={session.status !== 'ready' && session.status !== 'running'}
+                    class="flex-1 min-w-0"
+                  >
+                    <Download class="mr-1 h-3 w-3" />
+                    Download
                   </Button.Button>
                 </div>
-                <Button.Button 
-                  size="sm" 
-                  variant="ghost"
-                  onclick={(e) => deleteSession(session.session_id, e)}
-                  disabled={$deleteSessionMutation.isPending}
-                  class="text-destructive hover:text-destructive"
-                >
-                  <Trash2 class="h-3 w-3" />
-                </Button.Button>
+                <!-- Secondary actions row -->
+                <div class="flex justify-between items-center gap-2">
+                  <Button.Button size="sm" variant="ghost" class="text-xs">
+                    View Details
+                  </Button.Button>
+                  <Button.Button 
+                    size="sm" 
+                    variant="ghost"
+                    onclick={(e) => deleteSession(session.session_id, e)}
+                    disabled={$deleteSessionMutation.isPending}
+                    class="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 class="h-3 w-3" />
+                  </Button.Button>
+                </div>
               </div>
             </Card.CardContent>
           </Card.Card>

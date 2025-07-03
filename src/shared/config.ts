@@ -31,6 +31,8 @@ export const CONFIG = {
   // Agent Configuration
   agent: {
     geminiApiKey: process.env.GEMINI_API_KEY || "",
+    openaiApiKey: process.env.OPENAI_API_KEY || "",
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
     model: process.env.LLM_MODEL || "gemini-1.5-flash",
     contextWindowSize: parseInt(
       process.env.CONTEXT_WINDOW_SIZE || "100000",

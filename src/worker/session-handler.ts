@@ -49,7 +49,7 @@ export class SessionHandler {
       });
 
       await job.updateProgress(30);
-      await SessionManager.updateSession(sessionId, { containerId, mcpPort });
+      await SessionManager.updateSession(sessionId, { containerId, mcpPort, vncPort });
       await SessionManager.addSessionLog(sessionId, 'info', 'Starting container...');
 
       // Start container
@@ -63,7 +63,7 @@ export class SessionHandler {
       
       await job.updateProgress(70);
       await SessionManager.addSessionLog(sessionId, 'info', 'Starting AI agent...');
-
+      await SessionManager.updateSessionStatus(sessionId, 'ready');
       // Start agent with the pre-allocated MCP port
       await this.startAgent(sessionId, containerId, initialPrompt, mcpPort);
       
@@ -200,13 +200,47 @@ export class SessionHandler {
         throw new Error('Session not found');
       }
 
-      // Get agent
-      const agent = this.activeAgents.get(sessionId);
+      // Get agent or start one if it doesn't exist
+      let agent = this.activeAgents.get(sessionId);
       if (!agent) {
-        // TODO: Start agent if not running, will be handled once agent runtime is moved out of worker
-        // For now, throw error
-        // API -> Worker (back pressure) -> Agent (runtime which interfaces with MCP server in the sandbox container). Agent runs inside worker for now
-        throw new Error('Agent not running');
+        logger.warn(`Agent not found for session ${sessionId}, attempting to start agent...`);
+        
+        // Check if session has necessary data (container and MCP port)
+        if (!session.containerId || !session.mcpPort) {
+          throw new Error('Cannot start agent: session missing container or MCP port');
+        }
+        
+        // Check if container is still running
+        const containerRunning = await this.containerManager.isContainerRunning(session.containerId);
+        if (!containerRunning) {
+          throw new Error('Cannot start agent: container is not running');
+        }
+        
+        try {
+          await SessionManager.addSessionLog(sessionId, 'info', 'Recovering agent...');
+          
+          // Start a new agent for this session
+          await this.startAgent(sessionId, session.containerId, session.initialPrompt, session.mcpPort);
+          agent = this.activeAgents.get(sessionId);
+          
+          if (!agent) {
+            throw new Error('Failed to start agent');
+          }
+          
+          await SessionManager.addSessionLog(sessionId, 'info', 'Agent recovered successfully');
+          
+          // Notify user that agent was recovered
+          await SessionRouter.publish(sessionId, {
+            type: 'system_update',
+            content: 'Agent connection restored. You can continue chatting.',
+            timestamp: Date.now(),
+          });
+          
+          logger.info(`Successfully recovered agent for session ${sessionId}`);
+        } catch (agentError) {
+          logger.error(`Failed to recover agent for session ${sessionId}:`, agentError);
+          throw new Error(`Agent recovery failed: ${agentError instanceof Error ? agentError.message : String(agentError)}`);
+        }
       }
 
       // First, publish the user's message

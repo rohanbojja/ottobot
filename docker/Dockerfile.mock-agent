@@ -10,7 +10,7 @@ ENV MCP_PORT=8080
 # Install system dependencies and development tools
 RUN apt-get update && apt-get install -y \
     # Basic system tools
-    curl wget git unzip software-properties-common \
+    curl wget git zip unzip software-properties-common \
     # X11 and VNC
     xvfb x11vnc fluxbox xterm \
     # Development tools
