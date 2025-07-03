@@ -33,7 +33,7 @@
 
 				<!-- Navigation Links -->
 				<div class="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-					<nav class="flex items-center gap-1 text-sm lg:gap-2">
+					<!-- <nav class="flex items-center gap-1 text-sm lg:gap-2">
 						<a
 							class="px-3 py-2 rounded-md font-medium transition-colors hover:bg-accent hover:text-accent-foreground text-muted-foreground hover:text-foreground"
 							href="/"
@@ -52,7 +52,7 @@
 						>
 							Documentation
 						</a>
-					</nav>
+					</nav> -->
 
 					<!-- Theme Toggle -->
 					<Button.Button
