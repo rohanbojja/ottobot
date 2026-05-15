@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import {
   CreateSessionSchema,
+  ErrorResponseSchema,
   SessionResponseSchema,
   SessionIdParamSchema,
   SessionLogsResponseSchema,
@@ -8,16 +9,16 @@ import {
 import { SessionManager } from "@/shared/session-manager";
 import { createLogger } from "@/shared/logger";
 import { CONFIG } from "@/shared/config";
-import { JOB_NAMES } from "@/shared/queue";
 import type { CreateSessionRequest, SessionResponse } from "@/shared/types";
-import { queuePlugin } from "../plugins/queue";
-import { redisPlugin } from "../plugins/redis";
+import { localSessionOrchestrator } from "@/application/local-session-runtime";
 
 const logger = createLogger("session-routes");
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export const sessionRoutes = new Elysia({ prefix: "/session" })
-  .use(queuePlugin)
-  .use(redisPlugin)
   .get(
     "/",
     async ({ query, set }) => {
@@ -45,8 +46,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
             ? `http://localhost:${session.vncPort}/vnc.html`
             : "",
           chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
-          created_at: session.createdAt,
-          expires_at: session.expiresAt,
+          created_at: session.createdAt.toISOString(),
+          expires_at: session.expiresAt.toISOString(),
           initial_prompt: session.initialPrompt,
         }));
 
@@ -77,6 +78,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           limit: t.Number(),
           offset: t.Number(),
         }),
+        500: ErrorResponseSchema,
       },
       detail: {
         tags: ["sessions"],
@@ -87,7 +89,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
   )
   .post(
     "/",
-    async ({ body, queue, redis, set }) => {
+    async ({ body, set }) => {
       try {
         const { initial_prompt, timeout, environment } =
           body as CreateSessionRequest;
@@ -99,23 +101,31 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
         );
 
         // Allocate VNC port
-        const vncPort = await SessionManager.allocateVncPort();
+        const vncPort = await SessionManager.allocateVncPort(session.id);
         if (!vncPort) {
-          await SessionManager.deleteSession(session.id);
+          const message = "No available VNC ports";
+          await SessionManager.updateSessionStatus(session.id, "error", message);
+          await SessionManager.addSessionLog(session.id, "error", message);
+          logger.warn(`Failed to allocate VNC port for session ${session.id}`);
+
           set.status = 503;
           return {
             error: "Service Unavailable",
-            message: "No available VNC ports",
+            message,
           };
         }
 
         // Update session with VNC port
         await SessionManager.updateSession(session.id, { vncPort });
+        await SessionManager.addSessionLog(
+          session.id,
+          "info",
+          "Session accepted; starting sandbox in background...",
+          { vncPort, environment: environment || "full-stack" },
+        );
 
-        // Queue session creation job
-        await queue.add(
-          JOB_NAMES.createSession,
-          {
+        void localSessionOrchestrator
+          .createSession({
             type: "create_session",
             sessionId: session.id,
             data: {
@@ -123,19 +133,34 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
               environment: environment || "full-stack",
               vncPort,
             },
-          },
-          {
-            priority: 1,
-          },
-        );
+          })
+          .catch(async (error: unknown) => {
+            const errorMessage = getErrorMessage(error);
+            logger.error(`Background session startup failed for ${session.id}:`, error);
 
-        // Increment total sessions metric
-        await redis.incr("metrics:total_sessions");
+            try {
+              await SessionManager.updateSessionStatus(session.id, "error", errorMessage);
+              await SessionManager.addSessionLog(
+                session.id,
+                "error",
+                `Background session startup failed: ${errorMessage}`,
+                {
+                  vncPort,
+                  environment: environment || "full-stack",
+                },
+              );
+            } catch (logError) {
+              logger.error(
+                `Failed to record background startup failure for ${session.id}:`,
+                logError,
+              );
+            }
+          });
 
         // Build response
         const response: SessionResponse = {
           session_id: session.id,
-          status: session.status,
+          status: "initializing",
           vnc_url: `http://localhost:${vncPort}/vnc.html`,
           chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
           created_at: session.createdAt.toISOString(),
@@ -159,6 +184,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
       body: CreateSessionSchema,
       response: {
         201: SessionResponseSchema,
+        500: ErrorResponseSchema,
+        503: ErrorResponseSchema,
       },
       detail: {
         tags: ["sessions"],
@@ -190,8 +217,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
             ? `http://localhost:${session.vncPort}/vnc.html`
             : "",
           chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
-          created_at: session.createdAt,
-          expires_at: session.expiresAt,
+          created_at: session.createdAt.toISOString(),
+          expires_at: session.expiresAt.toISOString(),
           initial_prompt: session.initialPrompt,
         };
 
@@ -209,6 +236,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
       params: SessionIdParamSchema,
       response: {
         200: SessionResponseSchema,
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
       },
       detail: {
         tags: ["sessions"],
@@ -219,7 +248,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
   )
   .delete(
     "/:id",
-    async ({ params, queue, set }) => {
+    async ({ params, set }) => {
       try {
         const { id } = params;
         const session = await SessionManager.getSession(id);
@@ -235,9 +264,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
         // Update status
         await SessionManager.updateSessionStatus(id, "terminating");
 
-        // Queue termination job
-        await queue.add(
-          JOB_NAMES.terminateSession,
+        await localSessionOrchestrator.terminateSession(
           {
             type: "terminate_session",
             sessionId: id,
@@ -247,14 +274,11 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
               mcpPort: session.mcpPort,
             },
           },
-          {
-            priority: 2,
-          },
         );
 
         set.status = 202;
         return {
-          message: "Session termination initiated",
+          message: "Session terminated",
           session_id: id,
         };
       } catch (error) {
@@ -273,6 +297,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           message: t.String(),
           session_id: t.String(),
         }),
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
       },
       detail: {
         tags: ["sessions"],
@@ -316,6 +342,8 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
       params: SessionIdParamSchema,
       response: {
         200: SessionLogsResponseSchema,
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
       },
       detail: {
         tags: ["sessions"],

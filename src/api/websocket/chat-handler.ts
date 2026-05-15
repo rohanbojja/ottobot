@@ -1,9 +1,9 @@
 import { SessionManager } from "@/shared/session-manager";
 import { createLogger } from "@/shared/logger";
-import { JOB_NAMES } from "@/shared/queue";
 import { SessionRouter } from "@/shared/session-router";
 import type { ChatMessage } from "@/shared/types";
 import { UserMessageSchemaType } from "@/shared/schemas/websocket";
+import { localSessionOrchestrator } from "@/application/local-session-runtime";
 
 const logger = createLogger("websocket");
 
@@ -79,77 +79,70 @@ export const chatWebSocketHandler = {
 
   message(ws: any, parsedMessage: UserMessageSchemaType) {
     const sessionId = ws.data.params.id;
-    console.log({
-      sessionId,
-      parsedMessage,
-    })
 
     try {
-      // Get session
-      SessionManager.getSession(sessionId)
-        .then((session) => {
-          if (!session) {
-            ws.send({
-              type: "error",
-              error: "Session not found",
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          // Check if session is ready
-          if (session.status !== "ready" && session.status !== "running") {
-            ws.send({
-              type: "error",
-              error: `Session is not ready (status: ${session.status})`,
-              timestamp: Date.now(),
-            });
-            return;
-          }
-
-          // Store message
-          SessionManager.addSessionMessage(sessionId, parsedMessage);
-
-          // Update session status
-          SessionManager.updateSessionStatus(sessionId, "running");
-
-          // Queue message for processing
-          const queue = ws.data.queue;
-          queue.add(
-            JOB_NAMES.processMessage,
-            {
-              type: "process_message",
-              sessionId,
-              data: {
-                message: parsedMessage,
-                workerId: session.workerId,
-              },
-            },
-            {
-              priority: 1,
-            },
-          );
-
-          // Send acknowledgment
-          ws.send({
-            type: "system_update",
-            content: "Message received and queued for processing",
-            timestamp: Date.now(),
-          });
-
-          logger.info(
-            `Message from session ${sessionId}:`,
-            parsedMessage.content,
-          );
-        })
-        .catch((error) => {
-          logger.error("Session handling error:", error);
+      void (async () => {
+        // Get session
+        const session = await SessionManager.getSession(sessionId);
+        if (!session) {
           ws.send({
             type: "error",
-            error: "Internal server error",
+            error: "Session not found",
             timestamp: Date.now(),
           });
+          return;
+        }
+
+        // Check if session is ready
+        if (session.status !== "ready" && session.status !== "running") {
+          ws.send({
+            type: "error",
+            error: `Session is not ready (status: ${session.status})`,
+            timestamp: Date.now(),
+          });
+          return;
+        }
+
+        // Store message
+        await SessionManager.addSessionMessage(sessionId, {
+          type: parsedMessage.type,
+          content: parsedMessage.content,
+          timestamp: parsedMessage.timestamp,
         });
+
+        // Update session status
+        await SessionManager.updateSessionStatus(sessionId, "running");
+
+        // Send acknowledgment before the local agent starts work.
+        ws.send({
+          type: "system_update",
+          content: "Message received; processing locally",
+          timestamp: Date.now(),
+        });
+
+        // Process message in the local API process.
+        await localSessionOrchestrator.processMessage(
+          {
+            type: "process_message",
+            sessionId,
+            data: {
+              message: parsedMessage,
+            },
+          },
+        );
+
+        logger.info(
+          `Message from session ${sessionId}:`,
+          parsedMessage.content,
+        );
+      })().catch((error) => {
+        logger.error("Session handling error:", error);
+        ws.send({
+          type: "error",
+          error: "Internal server error",
+          timestamp: Date.now(),
+        });
+      });
     } catch (error) {
       logger.error("WebSocket message error:", error);
       ws.send({

@@ -1,4 +1,4 @@
-import { BaseMessage } from '@langchain/core/messages';
+import { BaseMessage, SystemMessage } from '@langchain/core/messages';
 import { SessionManager } from '@/shared/session-manager';
 import { createLogger } from '@/shared/logger';
 import { CONFIG } from '@/shared/config';
@@ -11,8 +11,8 @@ interface Context {
   tokenCount: number;
   projectInfo?: {
     files: string[];
-    structure: any;
-    dependencies?: any;
+    structure: unknown;
+    dependencies?: unknown;
   };
 }
 
@@ -97,7 +97,7 @@ export class ContextManager {
     
     return [
       ...firstMessages,
-      new BaseMessage({ content: summary, type: 'system' }),
+      new SystemMessage(summary),
       ...lastMessages,
     ];
   }

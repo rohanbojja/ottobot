@@ -58,11 +58,11 @@
       "locked": false,
       "fontSize": 12,
       "fontFamily": 1,
-      "text": "Frontend Components:\n\n• SessionPage.svelte\n  - VNC iframe viewer\n  - Chat interface\n  - WebSocket client\n\n• API Client (axios)\n  - Session management\n  - TanStack Query\n\n• Chat Features:\n  - Auto-scroll\n  - Message deduplication\n  - Scroll-to-bottom button",
+      "text": "Frontend Components:\n\n• App.tsx\n  - VNC iframe viewer\n  - Chat interface\n  - WebSocket client\n\n• API Client (fetch)\n  - Session management\n  - Runtime health\n\n• Chat Features:\n  - Auto-scroll\n  - Message timeline\n  - Session controls",
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "Frontend Components:\n\n• SessionPage.svelte\n  - VNC iframe viewer\n  - Chat interface\n  - WebSocket client\n\n• API Client (axios)\n  - Session management\n  - TanStack Query\n\n• Chat Features:\n  - Auto-scroll\n  - Message deduplication\n  - Scroll-to-bottom button"
+      "originalText": "Frontend Components:\n\n• App.tsx\n  - VNC iframe viewer\n  - Chat interface\n  - WebSocket client\n\n• API Client (fetch)\n  - Session management\n  - Runtime health\n\n• Chat Features:\n  - Auto-scroll\n  - Message timeline\n  - Session controls"
     },
     {
       "type": "rectangle",

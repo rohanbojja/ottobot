@@ -5,7 +5,15 @@ import { createLogger } from '@/shared/logger';
 const logger = createLogger('download-routes');
 
 export const downloadRoutes = new Elysia({ prefix: '/download' })
-  .get('/:id', async ({ params, set }) => {
+  .get('/:id', async (context: unknown) => {
+    const { params, set } = context as {
+      params: { id: string };
+      set: {
+        status?: number;
+        headers: Record<string, string>;
+      };
+    };
+
     try {
       const { id } = params;
       
@@ -89,6 +97,10 @@ export const downloadRoutes = new Elysia({ prefix: '/download' })
         message: t.String()
       }),
       502: t.Object({
+        error: t.String(),
+        message: t.String()
+      }),
+      500: t.Object({
         error: t.String(),
         message: t.String()
       })

@@ -8,12 +8,11 @@ export interface Session {
   vncUrl?: string;
   vncPort?: number;
   mcpPort?: number;
-  workerId?: string;
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date;
   error?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateSessionRequest {
@@ -42,14 +41,40 @@ export interface ChatMessage {
     download_url?: string;
     error?: string;
     vnc_ready?: boolean;
+    [key: string]: unknown;
   };
 }
 
-export interface WorkerJob {
-  type: 'create_session' | 'terminate_session' | 'process_message';
-  sessionId: string;
-  data: any;
-}
+export type SessionCommand =
+  | {
+      type: 'create_session';
+      sessionId: string;
+      data: {
+        initialPrompt: string;
+        environment: NonNullable<CreateSessionRequest['environment']> | string;
+        vncPort: number;
+      };
+    }
+  | {
+      type: 'terminate_session';
+      sessionId: string;
+      data: {
+        containerId?: string;
+        vncPort?: number;
+        mcpPort?: number;
+      };
+    }
+  | {
+      type: 'process_message';
+      sessionId: string;
+      data: {
+        message: {
+          type: 'user_prompt';
+          content: string;
+          timestamp: number;
+        };
+      };
+    };
 
 export interface ContainerConfig {
   image: string;
@@ -64,8 +89,8 @@ export interface ContainerConfig {
 export interface AgentTool {
   name: string;
   description: string;
-  parameters: Record<string, any>;
-  execute: (params: any) => Promise<any>;
+  parameters: Record<string, unknown>;
+  execute: (params: Record<string, unknown>) => Promise<unknown>;
 }
 
 export interface AgentState {
@@ -87,19 +112,13 @@ export interface HealthStatus {
   version: string;
   uptime: number;
   services: {
-    redis: boolean;
     docker: boolean;
-    workers: number;
+    registry: boolean;
+    sessions: number;
   };
 }
 
 export interface Metrics {
   activeSessions: number;
   totalSessions: number;
-  queueLength: number;
-  workerStatus: Array<{
-    id: string;
-    active: boolean;
-    currentJobs: number;
-  }>;
 }

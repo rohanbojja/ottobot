@@ -3,23 +3,16 @@ import { HealthResponseSchema, MetricsResponseSchema } from '@/shared/schemas/he
 import { SessionManager } from '@/shared/session-manager';
 import { createLogger } from '@/shared/logger';
 import type { HealthStatus } from '@/shared/types';
-import Docker from 'dockerode';
+import { createDockerClient } from '@/shared/docker-client';
 
 const logger = createLogger('health-routes');
-const docker = new Docker();
+const docker = createDockerClient();
 const startTime = Date.now();
 
 export const healthRoutes = new Elysia({ prefix: '/health' })
-  .get('/', async ({ redis }) => {
+  .get('/', async () => {
     try {
-      // Check Redis
-      let redisHealthy = false;
-      try {
-        await redis.ping();
-        redisHealthy = true;
-      } catch (error) {
-        logger.error('Redis health check failed:', error);
-      }
+      const registryHealthy = await SessionManager.healthCheck();
 
       // Check Docker
       let dockerHealthy = false;
@@ -30,22 +23,12 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
         logger.error('Docker health check failed:', error);
       }
 
-      // Count active workers (exclude expired keys)
-      const workerKeys = await redis.keys('worker:*:status');
-      let activeWorkers = 0;
-      for (const key of workerKeys) {
-        const status = await redis.get(key);
-        const ttl = await redis.ttl(key);
-        // Only count as active if status is active and key hasn't expired
-        if (status === 'active' && ttl > 0) activeWorkers++;
-      }
+      const activeSessions = await SessionManager.getActiveSessions();
 
       // Determine overall health status
       let status: HealthStatus['status'] = 'healthy';
-      if (!redisHealthy || !dockerHealthy) {
+      if (!registryHealthy || !dockerHealthy) {
         status = 'unhealthy';
-      } else if (activeWorkers === 0) {
-        status = 'degraded';
       }
 
       return {
@@ -53,9 +36,9 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
         version: '1.0.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         services: {
-          redis: redisHealthy,
           docker: dockerHealthy,
-          workers: activeWorkers,
+          registry: registryHealthy,
+          sessions: activeSessions.length,
         },
         timestamp: new Date().toISOString(),
       };
@@ -66,9 +49,9 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
         version: '1.0.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         services: {
-          redis: false,
           docker: false,
-          workers: 0,
+          registry: false,
+          sessions: 0,
         },
         timestamp: new Date().toISOString(),
       };
@@ -83,47 +66,18 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
       description: 'Returns the health status of the system and its dependencies',
     },
   })
-  .get('/metrics', async ({ queue, redis }) => {
+  .get('/metrics', async () => {
     try {
       // Get session metrics
       const sessions = await SessionManager.getActiveSessions();
       const activeSessions = sessions.length;
       
       // Get total sessions count
-      const totalSessionsCount = await redis.get('metrics:total_sessions');
-      const totalSessions = totalSessionsCount ? parseInt(totalSessionsCount, 10) : 0;
-
-      // Get queue metrics
-      const queueStatus = await queue.getJobCounts();
-      const queueLength = queueStatus.waiting + queueStatus.active;
-
-      // Get worker status (exclude expired workers)
-      const workerKeys = await redis.keys('worker:*:status');
-      const workerStatus = [];
-      
-      for (const key of workerKeys) {
-        const workerId = key.split(':')[1];
-        const status = await redis.get(key);
-        const ttl = await redis.ttl(key);
-        
-        // Only include workers that haven't expired
-        if (status && ttl > 0) {
-          const jobsKey = `worker:${workerId}:jobs`;
-          const jobs = await redis.scard(jobsKey);
-          
-          workerStatus.push({
-            id: workerId,
-            active: status === 'active',
-            current_jobs: jobs,
-          });
-        }
-      }
+      const totalSessions = await SessionManager.getTotalSessionsCount();
 
       return {
         active_sessions: activeSessions,
         total_sessions: totalSessions,
-        queue_length: queueLength,
-        worker_status: workerStatus,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -131,8 +85,6 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
       return {
         active_sessions: 0,
         total_sessions: 0,
-        queue_length: 0,
-        worker_status: [],
         timestamp: new Date().toISOString(),
       };
     }
@@ -143,6 +95,6 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
     detail: {
       tags: ['health'],
       summary: 'System metrics',
-      description: 'Returns metrics about sessions, queues, and workers',
+      description: 'Returns metrics about local sessions',
     },
   });

@@ -10,10 +10,12 @@ export DISPLAY=:1
 VNC_PORT=${VNC_PORT:-5901}
 NOVNC_PORT=${NOVNC_PORT:-6080}
 MCP_PORT=${MCP_PORT:-8080}
+XVFB_RESOLUTION=${XVFB_RESOLUTION:-1440x900x24}
 
 echo "VNC Port: $VNC_PORT"
 echo "noVNC Port: $NOVNC_PORT"
 echo "MCP Port: $MCP_PORT"
+echo "Display: $XVFB_RESOLUTION"
 
 # Function to cleanup on exit
 cleanup() {
@@ -30,7 +32,7 @@ trap cleanup SIGTERM SIGINT
 
 # Start Xvfb (virtual framebuffer)
 echo "Starting Xvfb..."
-Xvfb :1 -screen 0 1920x1080x24 -ac &
+Xvfb :1 -screen 0 "$XVFB_RESOLUTION" -ac &
 XVFB_PID=$!
 
 # Wait for X server to start
@@ -102,7 +104,7 @@ health_check() {
         # Check if critical processes are running
         if ! pgrep -f "Xvfb" > /dev/null; then
             echo "ERROR: Xvfb died, restarting..."
-            Xvfb :1 -screen 0 1920x1080x24 -ac &
+            Xvfb :1 -screen 0 "$XVFB_RESOLUTION" -ac &
         fi
         
         if ! pgrep -f "x11vnc" > /dev/null; then

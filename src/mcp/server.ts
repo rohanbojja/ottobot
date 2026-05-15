@@ -5,6 +5,7 @@ import { execSync, spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
 import archiver from 'archiver';
+import type { ToolServer } from '@/application/ports';
 
 const PORT = process.env['MCP_PORT'] || 8080;
 const WORKSPACE_DIR = '/home/developer/workspace';
@@ -227,11 +228,6 @@ async function guiType(text: string): Promise<string> {
 
 async function guiKey(key: string): Promise<string> {
   try {
-    // Support common key combinations and special keys
-    const validKeys = ['Return', 'Tab', 'Escape', 'BackSpace', 'Delete', 'Home', 'End', 'Page_Up', 'Page_Down', 
-                      'Left', 'Right', 'Up', 'Down', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-                      'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+a', 'ctrl+s', 'alt+Tab'];
-    
     execSync(`xdotool key ${key}`, {
       env: { ...process.env, DISPLAY: ':1' }
     });
@@ -354,9 +350,9 @@ async function listProcesses(): Promise<string> {
     for (const line of lines.slice(0, 20)) { // Limit to 20 processes
       const parts = line.trim().split(/\s+/);
       if (parts.length >= 11) {
-        const pid = parts[1];
-        const cpu = parts[2];
-        const mem = parts[3];
+        const pid = parts[1] ?? '';
+        const cpu = parts[2] ?? '';
+        const mem = parts[3] ?? '';
         const command = parts.slice(10).join(' ').substring(0, 50); // Truncate long commands
         result += `${pid.padEnd(7)} ${cpu.padEnd(4)} ${mem.padEnd(4)} ${command}\n`;
       }
@@ -406,16 +402,16 @@ async function getScreenResolution(): Promise<{ width: number; height: number }>
     const match = output.match(/(\d+)x(\d+)/);
     if (match) {
       return {
-        width: parseInt(match[1]),
-        height: parseInt(match[2])
+        width: parseInt(match[1] ?? '1920', 10),
+        height: parseInt(match[2] ?? '1080', 10)
       };
     }
     
-    // Fallback to common resolution
-    return { width: 1920, height: 1080 };
+    // Fallback to the default sandbox desktop resolution.
+    return { width: 1440, height: 900 };
   } catch (error) {
     // Fallback resolution
-    return { width: 1920, height: 1080 };
+    return { width: 1440, height: 900 };
   }
 }
 
@@ -566,8 +562,8 @@ async function centerWindow(windowId: string): Promise<string> {
     let windowHeight = 600;
     
     if (match) {
-      windowWidth = parseInt(match[1]);
-      windowHeight = parseInt(match[2]);
+      windowWidth = parseInt(match[1] ?? '800', 10);
+      windowHeight = parseInt(match[2] ?? '600', 10);
     }
     
     // Center the window
@@ -582,8 +578,8 @@ async function centerWindow(windowId: string): Promise<string> {
   }
 }
 
-// Create and start the server using elysia-mcp plugin
-const app = new Elysia()
+function createMcpApp() {
+  return new Elysia()
   // Add a health check endpoint for debugging
   .get('/', () => ({ status: 'MCP Server running', port: PORT }))
   .get('/health', () => ({ status: 'healthy', timestamp: new Date().toISOString() }))
@@ -1107,15 +1103,40 @@ const app = new Elysia()
 
       console.log('MCP Server tools registered (including GUI automation, process management, and window tiling)');
     }
-  }))
-  .listen(PORT);
+  }));
+}
+
+export class ElysiaMcpToolServer implements ToolServer {
+  private app?: ReturnType<ReturnType<typeof createMcpApp>['listen']>;
+  private registered = false;
+
+  registerTools(): void {
+    this.registered = true;
+  }
+
+  listen(port: number): void {
+    if (!this.registered) {
+      this.registerTools();
+    }
+
+    this.app = createMcpApp().listen(port);
+  }
+
+  async shutdown(): Promise<void> {
+    this.app?.stop();
+  }
+}
+
+const toolServer = new ElysiaMcpToolServer();
+toolServer.registerTools();
+toolServer.listen(Number(PORT));
 
 console.log(`MCP Server listening on port ${PORT}`);
 
 // Handle server shutdown
 process.on('SIGINT', async () => {
   console.log('Shutting down server...');
-  app.stop();
+  await toolServer.shutdown();
   console.log('Server shutdown complete');
   process.exit(0);
 });

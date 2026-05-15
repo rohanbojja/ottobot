@@ -1,17 +1,146 @@
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { Database } from "bun:sqlite";
 import { nanoid } from "nanoid";
-import type { Session, SessionStatus } from "./types";
-import { redis } from "@/api/plugins/redis";
+import type { ChatMessage, Session, SessionStatus } from "./types";
 import { createLogger } from "./logger";
 import { CONFIG } from "./config";
 
 const logger = createLogger("session-manager");
 
-const SESSION_PREFIX = "session:";
-const SESSION_INDEX = "sessions:index";
-const SESSION_BY_WORKER = "sessions:by-worker:";
+type SessionRow = {
+  id: string;
+  status: SessionStatus;
+  initial_prompt: string;
+  container_id: string | null;
+  vnc_url: string | null;
+  vnc_port: number | null;
+  mcp_port: number | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  error: string | null;
+  metadata: string | null;
+};
+
+type CountRow = { count: number };
+type ValueRow = { value: string | number | null };
+type PayloadRow = { payload: string };
+type LogRow = {
+  timestamp: string;
+  level: string;
+  message: string;
+  metadata: string | null;
+};
+
+const dbPath = resolve(process.env["OTTOBOT_SQLITE_PATH"] || "session-data/ottobot.sqlite");
+mkdirSync(dirname(dbPath), { recursive: true });
+
+const db = new Database(dbPath, { create: true, readwrite: true, strict: true });
+
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    initial_prompt TEXT NOT NULL,
+    container_id TEXT,
+    vnc_url TEXT,
+    vnc_port INTEGER,
+    mcp_port INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    error TEXT,
+    metadata TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS session_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS session_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    metadata TEXT,
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS session_context (
+    session_id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS allocated_ports (
+    kind TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    session_id TEXT,
+    allocated_at TEXT NOT NULL,
+    PRIMARY KEY(kind, port)
+  );
+
+  CREATE TABLE IF NOT EXISTS metrics (
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+  );
+`);
+
+function toSession(row: SessionRow): Session {
+  const metadata = row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : undefined;
+
+  return {
+    id: row.id,
+    status: row.status,
+    initialPrompt: row.initial_prompt,
+    ...(row.container_id ? { containerId: row.container_id } : {}),
+    ...(row.vnc_url ? { vncUrl: row.vnc_url } : {}),
+    ...(row.vnc_port !== null ? { vncPort: row.vnc_port } : {}),
+    ...(row.mcp_port !== null ? { mcpPort: row.mcp_port } : {}),
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    expiresAt: new Date(row.expires_at),
+    ...(row.error ? { error: row.error } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+function sessionToBindings(session: Session) {
+  return {
+    id: session.id,
+    status: session.status,
+    initialPrompt: session.initialPrompt,
+    containerId: session.containerId ?? null,
+    vncUrl: session.vncUrl ?? null,
+    vncPort: session.vncPort ?? null,
+    mcpPort: session.mcpPort ?? null,
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString(),
+    expiresAt: session.expiresAt.toISOString(),
+    error: session.error ?? null,
+    metadata: session.metadata ? JSON.stringify(session.metadata) : null,
+  };
+}
+
+function parseJsonPayload<T>(payload: string): T {
+  return JSON.parse(payload) as T;
+}
 
 export class SessionManager {
-  // Create a new session
+  static get dbPath(): string {
+    return dbPath;
+  }
+
   static async createSession(
     initialPrompt: string,
     timeout?: number,
@@ -29,28 +158,35 @@ export class SessionManager {
       expiresAt: new Date(now.getTime() + timeoutMs),
     };
 
-    // Store session in Redis
-    await redis.setex(
-      `${SESSION_PREFIX}${sessionId}`,
-      timeoutMs / 1000, // TTL in seconds
-      JSON.stringify(session),
-    );
+    const values = sessionToBindings(session);
+    db.query(`
+      INSERT INTO sessions (
+        id, status, initial_prompt, container_id, vnc_url, vnc_port, mcp_port,
+        created_at, updated_at, expires_at, error, metadata
+      )
+      VALUES (
+        $id, $status, $initialPrompt, $containerId, $vncUrl, $vncPort, $mcpPort,
+        $createdAt, $updatedAt, $expiresAt, $error, $metadata
+      )
+    `).run(values);
 
-    // Add to session index
-    await redis.sadd(SESSION_INDEX, sessionId);
+    db.query(`
+      INSERT INTO metrics (key, value) VALUES ('total_sessions', 1)
+      ON CONFLICT(key) DO UPDATE SET value = value + 1
+    `).run();
 
     logger.info(`Created session ${sessionId}`);
     return session;
   }
 
-  // Get session by ID
   static async getSession(sessionId: string): Promise<Session | null> {
-    const data = await redis.get(`${SESSION_PREFIX}${sessionId}`);
-    if (!data) return null;
-    return JSON.parse(data);
+    const row = db.query<SessionRow, [string]>(
+      "SELECT * FROM sessions WHERE id = ?",
+    ).get(sessionId);
+
+    return row ? toSession(row) : null;
   }
 
-  // Update session
   static async updateSession(
     sessionId: string,
     updates: Partial<Session>,
@@ -64,29 +200,27 @@ export class SessionManager {
       updatedAt: new Date(),
     };
 
-    // Calculate remaining TTL
-    const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
-    if (ttl > 0) {
-      await redis.setex(
-        `${SESSION_PREFIX}${sessionId}`,
-        ttl,
-        JSON.stringify(updatedSession),
-      );
-    }
-
-    // Update worker assignment if provided
-    if (updates.workerId && updates.workerId !== session.workerId) {
-      if (session.workerId) {
-        await redis.srem(`${SESSION_BY_WORKER}${session.workerId}`, sessionId);
-      }
-      await redis.sadd(`${SESSION_BY_WORKER}${updates.workerId}`, sessionId);
-    }
+    const values = sessionToBindings(updatedSession);
+    db.query(`
+      UPDATE sessions SET
+        status = $status,
+        initial_prompt = $initialPrompt,
+        container_id = $containerId,
+        vnc_url = $vncUrl,
+        vnc_port = $vncPort,
+        mcp_port = $mcpPort,
+        created_at = $createdAt,
+        updated_at = $updatedAt,
+        expires_at = $expiresAt,
+        error = $error,
+        metadata = $metadata
+      WHERE id = $id
+    `).run(values);
 
     logger.info(`Updated session ${sessionId}`, { updates });
     return updatedSession;
   }
 
-  // Update session status
   static async updateSessionStatus(
     sessionId: string,
     status: SessionStatus,
@@ -98,180 +232,170 @@ export class SessionManager {
     await this.updateSession(sessionId, updates);
   }
 
-  // Delete session
   static async deleteSession(sessionId: string): Promise<boolean> {
     const session = await this.getSession(sessionId);
     if (!session) return false;
 
-    // Remove from Redis
-    await redis.del(`${SESSION_PREFIX}${sessionId}`);
-    await redis.srem(SESSION_INDEX, sessionId);
-
-    // Remove from worker assignment
-    if (session.workerId) {
-      await redis.srem(`${SESSION_BY_WORKER}${session.workerId}`, sessionId);
-    }
-
-    // Remove related data
-    await redis.del(`session:messages:${sessionId}`);
-    await redis.del(`session:logs:${sessionId}`);
-    await redis.del(`session:context:${sessionId}`);
+    db.query("DELETE FROM allocated_ports WHERE session_id = ?").run(sessionId);
+    db.query("DELETE FROM sessions WHERE id = ?").run(sessionId);
 
     logger.info(`Deleted session ${sessionId}`);
     return true;
   }
 
-  // Get all active sessions
   static async getActiveSessions(): Promise<Session[]> {
-    const sessionIds = await redis.smembers(SESSION_INDEX);
-    const sessions: Session[] = [];
+    const rows = db.query<SessionRow, []>(`
+      SELECT * FROM sessions
+      WHERE status != 'terminated'
+      ORDER BY created_at DESC
+    `).all();
 
-    for (const id of sessionIds) {
-      const session = await this.getSession(id);
-      if (session) {
-        sessions.push(session);
-      }
-    }
-
-    return sessions;
+    return rows.map(toSession);
   }
 
-  // Get sessions by worker
-  static async getSessionsByWorker(workerId: string): Promise<string[]> {
-    return redis.smembers(`${SESSION_BY_WORKER}${workerId}`);
+  static async getTotalSessionsCount(): Promise<number> {
+    const row = db.query<ValueRow, []>(
+      "SELECT value FROM metrics WHERE key = 'total_sessions'",
+    ).get();
+
+    return typeof row?.value === "number" ? row.value : 0;
   }
 
-  // Store session message
   static async addSessionMessage(
     sessionId: string,
-    message: any,
+    message: ChatMessage,
   ): Promise<void> {
-    const key = `session:messages:${sessionId}`;
-    await redis.rpush(key, JSON.stringify(message));
-
-    // Set expiry to match session TTL
-    const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
-    if (ttl > 0) {
-      await redis.expire(key, ttl);
-    }
+    db.query(`
+      INSERT INTO session_messages (session_id, payload, created_at)
+      VALUES (?, ?, ?)
+    `).run(sessionId, JSON.stringify(message), new Date().toISOString());
   }
 
-  // Get session messages
   static async getSessionMessages(
     sessionId: string,
     limit?: number,
-  ): Promise<any[]> {
-    const key = `session:messages:${sessionId}`;
-    const messages = limit
-      ? await redis.lrange(key, -limit, -1)
-      : await redis.lrange(key, 0, -1);
+  ): Promise<ChatMessage[]> {
+    const rows = db.query<PayloadRow, [string, number]>(`
+      SELECT payload FROM session_messages
+      WHERE session_id = ?
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(sessionId, limit ?? 1000);
 
-    return messages.map((msg) => JSON.parse(msg));
+    return rows.reverse().map((row) => parseJsonPayload<ChatMessage>(row.payload));
   }
 
-  // Add session log
   static async addSessionLog(
     sessionId: string,
     level: string,
     message: string,
-    metadata?: any,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
-    const log = {
-      timestamp: new Date().toISOString(),
+    db.query(`
+      INSERT INTO session_logs (session_id, timestamp, level, message, metadata)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      new Date().toISOString(),
       level,
       message,
-      metadata,
-    };
-
-    const key = `session:logs:${sessionId}`;
-    await redis.rpush(key, JSON.stringify(log));
-
-    // Keep only last 1000 logs
-    await redis.ltrim(key, -1000, -1);
-
-    // Set expiry to match session TTL
-    const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
-    if (ttl > 0) {
-      await redis.expire(key, ttl);
-    }
+      metadata ? JSON.stringify(metadata) : null,
+    );
   }
 
-  // Get session logs
   static async getSessionLogs(
     sessionId: string,
     limit: number = 100,
-  ): Promise<any[]> {
-    const key = `session:logs:${sessionId}`;
-    const logs = await redis.lrange(key, -limit, -1);
-    return logs.map((log) => JSON.parse(log));
+  ): Promise<Array<{ timestamp: string; level: string; message: string; metadata?: Record<string, unknown> }>> {
+    const rows = db.query<LogRow, [string, number]>(`
+      SELECT timestamp, level, message, metadata FROM session_logs
+      WHERE session_id = ?
+      ORDER BY id DESC
+      LIMIT ?
+    `).all(sessionId, limit);
+
+    return rows.reverse().map((row) => ({
+      timestamp: row.timestamp,
+      level: row.level,
+      message: row.message,
+      ...(row.metadata ? { metadata: JSON.parse(row.metadata) as Record<string, unknown> } : {}),
+    }));
   }
 
-  // Allocate VNC port
-  static async allocateVncPort(): Promise<number | null> {
-    const start = CONFIG.container.vncPortRangeStart;
-    const end = CONFIG.container.vncPortRangeEnd;
-
-    for (let port = start; port <= end; port++) {
-      const allocated = await redis.setnx(`vnc:port:${port}`, "1");
-      if (allocated) {
-        // Set expiry to prevent leaks
-        await redis.expire(`vnc:port:${port}`, 7200); // 2 hours
-        return port;
-      }
-    }
-
-    logger.error("No available VNC ports");
-    return null;
+  static async allocateVncPort(sessionId?: string): Promise<number | null> {
+    return this.allocatePort("vnc", CONFIG.container.vncPortRangeStart, CONFIG.container.vncPortRangeEnd, sessionId);
   }
 
-  // Release VNC port
   static async releaseVncPort(port: number): Promise<void> {
-    await redis.del(`vnc:port:${port}`);
+    this.releasePort("vnc", port);
   }
 
-  // Allocate MCP port
-  static async allocateMcpPort(): Promise<number | null> {
-    const start = CONFIG.container.mcpPortRangeStart;
-    const end = CONFIG.container.mcpPortRangeEnd;
-
-    for (let port = start; port <= end; port++) {
-      const allocated = await redis.setnx(`mcp:port:${port}`, "1");
-      if (allocated) {
-        // Set expiry to prevent leaks
-        await redis.expire(`mcp:port:${port}`, 7200); // 2 hours
-        return port;
-      }
-    }
-
-    logger.error("No available MCP ports");
-    return null;
+  static async allocateMcpPort(sessionId?: string): Promise<number | null> {
+    return this.allocatePort("mcp", CONFIG.container.mcpPortRangeStart, CONFIG.container.mcpPortRangeEnd, sessionId);
   }
 
-  // Release MCP port
   static async releaseMcpPort(port: number): Promise<void> {
-    await redis.del(`mcp:port:${port}`);
+    this.releasePort("mcp", port);
   }
 
-  // Session context management
   static async getSessionContext(sessionId: string): Promise<string | null> {
-    return redis.get(`session:context:${sessionId}`);
+    const row = db.query<PayloadRow, [string]>(
+      "SELECT payload FROM session_context WHERE session_id = ?",
+    ).get(sessionId);
+
+    return row?.payload ?? null;
   }
 
   static async storeSessionContext(
     sessionId: string,
     context: string,
   ): Promise<void> {
-    const key = `session:context:${sessionId}`;
-    const ttl = await redis.ttl(`${SESSION_PREFIX}${sessionId}`);
-
-    if (ttl > 0) {
-      await redis.setex(key, ttl, context);
-    } else {
-      await redis.set(key, context);
-    }
+    db.query(`
+      INSERT INTO session_context (session_id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        payload = excluded.payload,
+        updated_at = excluded.updated_at
+    `).run(sessionId, context, new Date().toISOString());
   }
 
   static async clearSessionContext(sessionId: string): Promise<void> {
-    await redis.del(`session:context:${sessionId}`);
+    db.query("DELETE FROM session_context WHERE session_id = ?").run(sessionId);
+  }
+
+  static async healthCheck(): Promise<boolean> {
+    try {
+      db.query<CountRow, []>("SELECT COUNT(*) as count FROM sessions").get();
+      return true;
+    } catch (error) {
+      logger.error("SQLite session registry health check failed:", error);
+      return false;
+    }
+  }
+
+  private static async allocatePort(
+    kind: "vnc" | "mcp",
+    start: number,
+    end: number,
+    sessionId?: string,
+  ): Promise<number | null> {
+    for (let port = start; port <= end; port++) {
+      try {
+        db.query(`
+          INSERT INTO allocated_ports (kind, port, session_id, allocated_at)
+          VALUES (?, ?, ?, ?)
+        `).run(kind, port, sessionId ?? null, new Date().toISOString());
+        return port;
+      } catch {
+        // Try the next port.
+      }
+    }
+
+    logger.error(`No available ${kind.toUpperCase()} ports`);
+    return null;
+  }
+
+  private static releasePort(kind: "vnc" | "mcp", port: number): void {
+    db.query("DELETE FROM allocated_ports WHERE kind = ? AND port = ?").run(kind, port);
   }
 }

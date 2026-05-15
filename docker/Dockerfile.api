@@ -17,7 +17,6 @@ RUN bun build src/index.ts --outdir=dist --target=bun
 EXPOSE 3000
 
 # Set environment
-ENV MODE=api
 ENV NODE_ENV=production
 
 # Health check

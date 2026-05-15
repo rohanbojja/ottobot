@@ -14,3 +14,5 @@ coverage/
 docker-compose.override.yml
 session-data/
 tmp/
+.playwright-mcp/
+src-tauri/target/

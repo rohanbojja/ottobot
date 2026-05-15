@@ -1,0 +1,29 @@
+{
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "OttoBot",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1080,
+        "minHeight": 760,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 21.5
+        },
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["hudWindow"],
+          "state": "followsWindowActiveState",
+          "radius": 24
+        }
+      }
+    ]
+  }
+}

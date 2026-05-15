@@ -6,6 +6,7 @@ ENV DISPLAY=:1
 ENV VNC_PORT=5901
 ENV NOVNC_PORT=6080
 ENV MCP_PORT=8080
+ENV XVFB_RESOLUTION=1440x900x24
 
 # Install system dependencies and development tools
 RUN apt-get update && apt-get install -y \

@@ -59,11 +59,11 @@
       "locked": false,
       "fontSize": 16,
       "fontFamily": 1,
-      "text": "Frontend\n(SvelteKit)\n- VNC Viewer\n- Chat Interface",
+      "text": "Desktop Frontend\n(Tauri + React)\n- VNC Viewer\n- Chat Interface",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": null,
-      "originalText": "Frontend\n(SvelteKit)\n- VNC Viewer\n- Chat Interface",
+      "originalText": "Desktop Frontend\n(Tauri + React)\n- VNC Viewer\n- Chat Interface",
       "index": "a1",
       "autoResize": true,
       "lineHeight": 0.9375

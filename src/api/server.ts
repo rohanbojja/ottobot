@@ -3,9 +3,6 @@ import { cors } from "@elysiajs/cors";
 import { swagger } from "@elysiajs/swagger";
 import { CONFIG } from "@/shared/config";
 import { createLogger } from "@/shared/logger";
-import { redisPlugin } from "./plugins/redis";
-import { queuePlugin } from "./plugins/queue";
-import { serverAdapter } from "./plugins/bull-board";
 import { sessionRoutes } from "./routes/sessions";
 import { healthRoutes } from "./routes/health";
 import { downloadRoutes } from "./routes/downloads";
@@ -13,6 +10,43 @@ import { chatWebSocketHandler } from "./websocket/chat-handler";
 import { UserMessageSchema } from "@/shared/schemas/websocket";
 
 const logger = createLogger("api-server");
+
+const normalizeCorsOrigin = (origin: string) => {
+  let normalized = origin.trim().replace(/\/$/, "");
+  const protocolStart = normalized.indexOf("://");
+  if (protocolStart !== -1) normalized = normalized.slice(protocolStart + 3);
+  return normalized;
+};
+
+const allowedCorsOrigins = new Set(
+  CONFIG.security.corsOrigins.flatMap((origin) => [
+    origin,
+    normalizeCorsOrigin(origin),
+  ]),
+);
+
+const isLoopbackDevOrigin = (origin: string) => {
+  try {
+    const parsed = new URL(origin);
+    return (
+      ["http:", "https:"].includes(parsed.protocol) &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+};
+
+const isCorsOriginAllowed = (request: Request) => {
+  const origin = request.headers.get("Origin");
+  if (!origin) return true;
+
+  return (
+    allowedCorsOrigins.has(origin) ||
+    allowedCorsOrigins.has(normalizeCorsOrigin(origin)) ||
+    isLoopbackDevOrigin(origin)
+  );
+};
 
 export const createApiServer = () => {
   const app = new Elysia()
@@ -45,7 +79,7 @@ export const createApiServer = () => {
     // Plugins
     .use(
       cors({
-        origin: CONFIG.security.corsOrigins,
+        origin: isCorsOriginAllowed,
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         credentials: true,
       }),
@@ -68,9 +102,6 @@ export const createApiServer = () => {
         },
       }),
     )
-    .use(redisPlugin)
-    .use(queuePlugin)
-    .use(serverAdapter.registerPlugin())
     // Routes
     .use(healthRoutes)
     .use(sessionRoutes)
@@ -78,7 +109,7 @@ export const createApiServer = () => {
     // WebSocket endpoint
     .ws("/session/:id/chat", {
       body: UserMessageSchema,
-      ...chatWebSocketHandler
+      ...(chatWebSocketHandler as any)
     })
     // Request logging
     .onRequest(({ request }) => {

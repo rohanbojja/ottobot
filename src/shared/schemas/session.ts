@@ -1,5 +1,10 @@
 import { t } from 'elysia';
 
+export const ErrorResponseSchema = t.Object({
+  error: t.String(),
+  message: t.String()
+});
+
 export const CreateSessionSchema = t.Object({
   initial_prompt: t.String({ 
     minLength: 1, 

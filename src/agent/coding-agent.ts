@@ -43,7 +43,7 @@ export class CodingAgent {
   }
 
   private async initializeExecutor() {
-    console.log("Initializing executor");
+    logger.info(`Initializing executor for session ${this.sessionId}`);
 
     // Retry logic for MCP connection
     const maxRetries = 30;
@@ -62,11 +62,11 @@ export class CodingAgent {
           checkpointSaver: this.checkpointer
         });
 
-        console.log("MCP connection established successfully");
+        logger.info(`MCP connection established for session ${this.sessionId}`);
         return; // Success, exit the retry loop
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        console.log(`MCP connection attempt ${i + 1}/${maxRetries} failed: ${lastError.message}`);
+        logger.debug(`MCP connection attempt ${i + 1}/${maxRetries} failed: ${lastError.message}`);
 
         // Emit status update every 5 attempts
         if ((i + 1) % 5 === 0) {
@@ -114,7 +114,7 @@ export class CodingAgent {
         ...this.config
       }
       ) ?? []) {
-        console.dir({ chunk }, { depth: null });
+        logger.debug("Agent stream chunk received", { sessionId: this.sessionId });
 
         // Handle agent messages
         if (chunk['agent'] && chunk['agent']['messages']) {
@@ -157,6 +157,7 @@ export class CodingAgent {
 
   async initialize(initialPrompt?: string): Promise<void> {
     try {
+      logger.info(`Initializing agent for session ${this.sessionId}`);
       await this.emitEvent('system_update', 'Initializing agent...');
       // Initialize Gemini model
       this.llm = await initChatModel("gpt-4.1-nano", {
