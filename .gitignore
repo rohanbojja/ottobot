@@ -15,4 +15,5 @@ docker-compose.override.yml
 session-data/
 tmp/
 .playwright-mcp/
+docs/screenshots/
 src-tauri/target/
