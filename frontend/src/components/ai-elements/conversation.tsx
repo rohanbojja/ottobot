@@ -122,11 +122,14 @@ export const ConversationScrollButton = ({
   );
 };
 
-const getMessageText = (message: UIMessage): string =>
-  message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("");
+const formatFilePart = (part: Extract<UIMessage["parts"][number], { type: "file" }>): string => {
+  const label = part.filename ?? part.mediaType;
+  if (part.mediaType.startsWith("image/")) {
+    return `![${label}](${part.url})`;
+  }
+
+  return `[${label}](${part.url})`;
+};
 
 export type ConversationDownloadProps = Omit<
   ComponentProps<typeof Button>,
@@ -140,7 +143,22 @@ export type ConversationDownloadProps = Omit<
 const defaultFormatMessage = (message: UIMessage): string => {
   const roleLabel =
     message.role.charAt(0).toUpperCase() + message.role.slice(1);
-  return `**${roleLabel}:** ${getMessageText(message)}`;
+  const content = message.parts
+    .map((part) => {
+      if (part.type === "text") {
+        return part.text;
+      }
+
+      if (part.type === "file") {
+        return formatFilePart(part);
+      }
+
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return content ? `**${roleLabel}:** ${content}` : `**${roleLabel}:**`;
 };
 
 export const messagesToMarkdown = (

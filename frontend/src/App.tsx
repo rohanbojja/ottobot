@@ -18,6 +18,11 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message";
 import {
+  PromptInputActionAddAttachments,
+  PromptInputActionAddScreenshot,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
   PromptInput,
   PromptInputBody,
   PromptInputHeader,
@@ -1036,6 +1041,15 @@ function NewSessionView({
             </PromptInputBody>
             <PromptInputFooter className="new-session-composer-footer items-center justify-between gap-3 border-t border-border/60 bg-background/25 px-4 py-3">
               <PromptInputTools className="gap-2 text-xs text-muted-foreground">
+                <PromptInputActionMenu>
+                  <PromptInputActionMenuTrigger tooltip="Add images or files" aria-label="Add images or files">
+                    <Plus className="size-4" />
+                  </PromptInputActionMenuTrigger>
+                  <PromptInputActionMenuContent className="min-w-52">
+                    <PromptInputActionAddAttachments />
+                    <PromptInputActionAddScreenshot />
+                  </PromptInputActionMenuContent>
+                </PromptInputActionMenu>
                 <span>Enter sends</span>
                 <span className="text-muted-foreground/50">Shift+Enter for a new line</span>
               </PromptInputTools>
@@ -1553,9 +1567,33 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
   }
 
   if (part.type === "file") {
+    const isImage = typeof part.mediaType === "string" && part.mediaType.startsWith("image/");
+    const label = part.filename ?? part.mediaType;
+
+    if (isImage) {
+      return (
+        <figure key={key} className="max-w-full overflow-hidden rounded-lg border border-border/70 bg-background/40">
+          <a href={part.url} target="_blank" rel="noreferrer" className="block">
+            <img
+              alt={label}
+              className="block max-h-[32rem] w-full object-contain"
+              src={part.url}
+            />
+          </a>
+          {label ? (
+            <figcaption className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              <a href={part.url} target="_blank" rel="noreferrer" className="hover:underline">
+                {label}
+              </a>
+            </figcaption>
+          ) : null}
+        </figure>
+      );
+    }
+
     return (
       <a key={key} href={part.url} target="_blank" rel="noreferrer" className="text-sm text-primary underline-offset-4 hover:underline">
-        {part.filename ?? part.mediaType}
+        {label}
       </a>
     );
   }
@@ -1772,6 +1810,15 @@ function SessionChatView({
           </PromptInputBody>
           <PromptInputFooter className="items-center justify-between gap-3 border-t border-border/60 bg-background/25 px-4 py-3">
             <PromptInputTools className="gap-2 text-xs text-muted-foreground">
+              <PromptInputActionMenu>
+                <PromptInputActionMenuTrigger tooltip="Add images or files" aria-label="Add images or files">
+                  <Plus className="size-4" />
+                </PromptInputActionMenuTrigger>
+                <PromptInputActionMenuContent className="min-w-52">
+                  <PromptInputActionAddAttachments />
+                  <PromptInputActionAddScreenshot />
+                </PromptInputActionMenuContent>
+              </PromptInputActionMenu>
               <span>Enter sends</span>
               <span className="text-muted-foreground/50">Shift+Enter for a new line</span>
             </PromptInputTools>
