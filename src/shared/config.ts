@@ -70,6 +70,7 @@ export const CONFIG = {
 
   // Container Configuration
   container: {
+    backend: env["SANDBOX_BACKEND"] || "docker",
     memoryLimit: env["CONTAINER_MEMORY_LIMIT"] || "2g",
     cpuLimit: parseFloat(env["CONTAINER_CPU_LIMIT"] || "1"),
     vncPortRangeStart: parseInt(env["VNC_PORT_RANGE_START"] || "6080", 10),

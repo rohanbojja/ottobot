@@ -7,7 +7,7 @@ import type { HealthStatus } from '@/shared/types';
 import { createDockerClient } from '@/shared/docker-client';
 
 const logger = createLogger('health-routes');
-const docker = createDockerClient();
+const sandboxClient = createDockerClient();
 const startTime = Date.now();
 
 export const healthRoutes = new Elysia({ prefix: '/health' })
@@ -15,20 +15,20 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
     try {
       const registryHealthy = await SessionManager.healthCheck();
 
-      // Check Docker
-      let dockerHealthy = false;
+      // Check sandbox runtime availability
+      let sandboxHealthy = false;
       try {
-        await docker.ping();
-        dockerHealthy = true;
+        await sandboxClient.ping();
+        sandboxHealthy = true;
       } catch (error) {
-        logger.error('Docker health check failed:', error);
+        logger.error('Sandbox health check failed:', error);
       }
 
       const activeSessions = await SessionManager.getActiveSessions();
 
       // Determine overall health status
       let status: HealthStatus['status'] = 'healthy';
-      if (!registryHealthy || !dockerHealthy) {
+      if (!registryHealthy || !sandboxHealthy) {
         status = 'unhealthy';
       }
 
@@ -37,7 +37,7 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
         version: '1.0.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         services: {
-          docker: dockerHealthy,
+          sandbox: sandboxHealthy,
           registry: registryHealthy,
           sessions: activeSessions.length,
         },
@@ -54,7 +54,7 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
         version: '1.0.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         services: {
-          docker: false,
+          sandbox: false,
           registry: false,
           sessions: 0,
         },

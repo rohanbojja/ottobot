@@ -1,6 +1,6 @@
 # OttoBot
 
-OttoBot is a local-first Tauri desktop cockpit for running coding-agent sessions in Docker sandboxes. The desktop app supervises a local Elysia API, the API owns session/container lifecycle directly, and SQLite stores session state on disk.
+OttoBot is a local-first Tauri desktop cockpit for running coding-agent sessions in sandbox backends. The desktop app supervises a local Elysia API, the API owns session/runtime lifecycle directly, and SQLite stores session state on disk.
 
 <p align="center">
   <img src="docs/assets/ottobot-session-detail.png" alt="OttoBot session workspace with chat, tools, desktop, and logs">
@@ -15,7 +15,7 @@ OttoBot is a local-first Tauri desktop cockpit for running coding-agent sessions
 
 ```text
 Tauri desktop -> Elysia API -> SQLite registry
-                          -> Docker sandbox container
+                          -> Sandbox backend
                           -> AI SDK ToolLoopAgent -> MCP server in container
 ```
 
@@ -28,7 +28,7 @@ There is no Redis queue, BullMQ worker, or separate background process. Session 
 - Tauri 2 desktop shell
 - React, Vite, Tailwind, and shadcn-style UI in `frontend/`
 - SQLite session registry at `session-data/ottobot.sqlite`
-- Docker agent image with noVNC, Playwright browser tools, desktop control, shell, and workspace MCP tools
+- Current Docker agent image with noVNC, Playwright browser tools, desktop control, shell, and workspace MCP tools
 
 ## Quick Start
 
@@ -39,7 +39,7 @@ bun run docker:agent
 bun run dev
 ```
 
-Docker must be running, and the agent image must exist before session creation works. Provide at least one model path through `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, or `codex login`.
+The current sandbox backend is Docker, so Docker must be running and the agent image must exist before session creation works. Provide at least one model path through `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, or `codex login`.
 
 ## Useful Commands
 

@@ -2,7 +2,7 @@
 
 ## Decision
 
-Keep Docker for the current desktop milestone, but keep it behind `SandboxBackend`. Use SQLite for the local session/container registry and boot sessions directly from the local API process.
+Keep Docker for the current desktop milestone, but keep it behind `SandboxBackend`. Use SQLite for the local session/runtime registry and boot sessions directly from the local API process.
 
 ## Current Pass
 

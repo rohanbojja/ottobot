@@ -106,6 +106,7 @@ export interface ToolServer {
 }
 
 // TODO: Add a WorktreeManager that creates per-session git worktrees before
-// sandbox startup. Docker remains one SandboxBackend implementation.
+// sandbox startup. The backend contract should stay independent from the
+// current Docker implementation.
 // TODO: Consider Firecracker VM isolation after SandboxBackend owns all
 // lifecycle and cleanup behavior behind this interface.

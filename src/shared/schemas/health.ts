@@ -10,7 +10,7 @@ export const HealthResponseSchema = t.Object({
     description: 'Uptime in seconds'
   }),
   services: t.Object({
-    docker: t.Boolean(),
+    sandbox: t.Boolean(),
     registry: t.Boolean(),
     sessions: t.Number({
       minimum: 0,

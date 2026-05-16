@@ -9,7 +9,7 @@ Tauri desktop -> Elysia API -> SQLite registry -> WorkspaceSession -> SandboxBac
 ## Current V1 Boundary
 
 - Tauri owns the local cockpit window and can check/start/stop the API.
-- Docker remains the external sandbox runtime.
+- Docker remains the current external sandbox runtime.
 - SQLite is the local session/container registry.
 - There is no Redis queue, BullMQ, or separate worker process.
 - Session dashboard, chat, VNC, downloads, and runtime health remain the user-facing contract.
