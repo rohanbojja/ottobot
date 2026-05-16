@@ -101,7 +101,7 @@ export interface HealthStatus {
   version: string;
   uptime: number;
   services: {
-    docker: boolean;
+    sandbox: boolean;
     registry: boolean;
     sessions: number;
   };

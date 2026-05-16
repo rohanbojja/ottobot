@@ -24,7 +24,7 @@ function getErrorMessage(error: unknown): string {
 export interface SessionOrchestratorDeps {
   sessionStore: SessionStorePort;
   workspaceManager: WorkspaceManager;
-  sandboxBackend: SandboxBackend;
+  runtimeBackend: SandboxBackend;
   agentRuntimeFactory: AgentRuntimeFactory;
 }
 
@@ -57,40 +57,44 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
         `Allocated MCP port ${mcpPort}, creating sandbox...`,
       );
 
-      const sandbox = await this.deps.sandboxBackend.createSandbox({
+      const runtime = await this.deps.runtimeBackend.createSandbox({
         sessionId,
         environment,
         vncPort,
         mcpPort,
         workspace,
       });
-      sandboxId = sandbox.id;
+      sandboxId = runtime.id;
 
       await context.updateProgress?.(30);
       await this.deps.sessionStore.updateSession(sessionId, {
-        containerId: sandbox.id,
+        containerId: runtime.id,
         mcpPort,
         vncPort,
         metadata: {
           sandbox: {
-            id: sandbox.id,
-            backend: sandbox.backend,
-            workspace: sandbox.workspace,
+            id: runtime.id,
+            backend: runtime.backend,
+            workspace: runtime.workspace,
           },
         },
       });
-      await this.deps.sessionStore.addSessionLog(sessionId, "info", `Starting ${sandbox.backend} sandbox...`);
+      await this.deps.sessionStore.addSessionLog(
+        sessionId,
+        "info",
+        `Starting ${runtime.backend} session backend...`,
+      );
 
-      await this.deps.sandboxBackend.startSandbox(sandbox.id);
+      await this.deps.runtimeBackend.startSandbox(runtime.id);
 
       await context.updateProgress?.(50);
       await this.deps.sessionStore.addSessionLog(sessionId, "info", "Waiting for sandbox desktop to be ready...");
 
-      await this.deps.sandboxBackend.waitForReady(sandbox.id, { vncPort, mcpPort });
+      await this.deps.runtimeBackend.waitForReady(runtime.id, { vncPort, mcpPort });
 
       await context.updateProgress?.(70);
       await this.deps.sessionStore.addSessionLog(sessionId, "info", "Starting AI agent...");
-      await this.startAgent(sessionId, sandbox.id, mcpPort);
+      await this.startAgent(sessionId, runtime.id, mcpPort);
 
       await context.updateProgress?.(90);
       await this.deps.sessionStore.updateSessionStatus(sessionId, "ready");
@@ -116,8 +120,8 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
           await this.captureSandboxLogs(sessionId, sandboxIdForCleanup);
 
           try {
-            await this.deps.sandboxBackend.stopSandbox(sandboxIdForCleanup);
-            await this.deps.sandboxBackend.destroySandbox(sandboxIdForCleanup);
+            await this.deps.runtimeBackend.stopSandbox(sandboxIdForCleanup);
+            await this.deps.runtimeBackend.destroySandbox(sandboxIdForCleanup);
             await this.deps.sessionStore.addSessionLog(
               sessionId,
               "info",
@@ -178,13 +182,13 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
 
       if (containerId) {
         try {
-          await this.deps.sandboxBackend.stopSandbox(containerId);
+          await this.deps.runtimeBackend.stopSandbox(containerId);
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          await this.deps.sandboxBackend.destroySandbox(containerId);
+          await this.deps.runtimeBackend.destroySandbox(containerId);
         } catch (error) {
           logger.warn(`Sandbox cleanup failed for ${containerId}, attempting force removal:`, error);
           try {
-            await this.deps.sandboxBackend.destroySandbox(containerId);
+            await this.deps.runtimeBackend.destroySandbox(containerId);
           } catch (forceError) {
             logger.error("Force sandbox removal failed:", forceError);
           }
@@ -270,7 +274,7 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
 
   private async captureSandboxLogs(sessionId: string, sandboxId: string): Promise<void> {
     try {
-      const sandboxLogs = (await this.deps.sandboxBackend.getSandboxLogs(sandboxId, 200)).trim();
+      const sandboxLogs = (await this.deps.runtimeBackend.getSandboxLogs(sandboxId, 200)).trim();
       if (!sandboxLogs) {
         return;
       }
@@ -315,7 +319,7 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
       throw new Error("Cannot start agent: session missing sandbox or MCP port");
     }
 
-    const sandboxRunning = await this.deps.sandboxBackend.isSandboxRunning(session.containerId);
+    const sandboxRunning = await this.deps.runtimeBackend.isSandboxRunning(session.containerId);
     if (!sandboxRunning) {
       throw new Error("Cannot start agent: sandbox is not running");
     }

@@ -3,9 +3,9 @@ import { CONFIG } from "@/shared/config";
 import { createDockerClient } from "@/shared/docker-client";
 import { createLogger } from "@/shared/logger";
 
-const logger = createLogger("container-manager");
+const logger = createLogger("docker-container-manager");
 
-export class ContainerManager {
+export class DockerContainerManager {
   private docker: Docker;
 
   constructor() {
@@ -357,3 +357,5 @@ export class ContainerManager {
     }
   }
 }
+
+export { DockerContainerManager as ContainerManager };
