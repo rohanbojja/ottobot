@@ -9,6 +9,7 @@ import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
+  ConversationFollowLatest,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import {
@@ -19,6 +20,7 @@ import {
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputHeader,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
@@ -261,6 +263,20 @@ function chatStatusTone(state: ChatStatus | "idle"): Tone {
   if (state === "submitted" || state === "streaming") return "warning";
   if (state === "error") return "negative";
   return "neutral";
+}
+
+function composerStatusLabel(status: ChatStatus, ready: boolean) {
+  if (!ready) return "Starting session";
+  if (status === "submitted" || status === "streaming") return "Sending";
+  if (status === "error") return "Needs attention";
+  return "Ready to send";
+}
+
+function composerStatusTone(status: ChatStatus, ready: boolean): Tone {
+  if (!ready) return "warning";
+  if (status === "submitted" || status === "streaming") return "warning";
+  if (status === "error") return "negative";
+  return "positive";
 }
 
 function logLevelTone(level: string): Tone {
@@ -983,15 +999,28 @@ function NewSessionView({
           </div>
 
           <PromptInput
-            className="new-session-composer"
+            className={cn(
+              "new-session-composer rounded-2xl border border-border/70 bg-gradient-to-b from-background/80 via-background/55 to-background/30 shadow-[0_24px_70px_-48px_rgba(0,0,0,0.85)] backdrop-blur-xl",
+              "[&_[data-slot=input-group]]:overflow-hidden [&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-border/70 [&_[data-slot=input-group]]:bg-background/30 [&_[data-slot=input-group]]:shadow-none",
+              "[&_[data-slot=input-group-addon]]:bg-transparent"
+            )}
             onSubmit={(message) => {
               const nextPrompt = message.text.trim();
               if (nextPrompt) setPrompt(nextPrompt);
               if (!busy) void createSession();
             }}
           >
+            <PromptInputHeader className="flex items-center justify-between gap-3 px-4 pt-4 pb-0 text-xs">
+              <span className="font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                Compose
+              </span>
+              <span className="inline-flex items-center gap-2 text-muted-foreground">
+                <span className={cn("size-2 rounded-full", busy ? "bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.15)]" : "bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.12)]")} />
+                {busy ? "Preparing" : "Ready to send"}
+              </span>
+            </PromptInputHeader>
             <PromptInputBody>
-              <div className="new-session-prompt-row">
+              <div className="new-session-prompt-row px-4 pt-3">
                 <div className="new-session-prompt-icon" aria-hidden="true">
                   <Plus className="h-4 w-4" />
                 </div>
@@ -1001,17 +1030,22 @@ function NewSessionView({
                   disabled={busy}
                   onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setPrompt(event.target.value)}
                   placeholder="What should OttoBot work on?"
-                  className="new-session-textarea"
+                  className="new-session-textarea min-h-24 border-0 bg-transparent px-0 py-0 text-[0.98rem] leading-6 placeholder:text-muted-foreground/65 focus-visible:ring-0"
                 />
               </div>
             </PromptInputBody>
-            <PromptInputFooter className="new-session-composer-footer justify-end">
+            <PromptInputFooter className="new-session-composer-footer items-center justify-between gap-3 border-t border-border/60 bg-background/25 px-4 py-3">
+              <PromptInputTools className="gap-2 text-xs text-muted-foreground">
+                <span>Enter sends</span>
+                <span className="text-muted-foreground/50">Shift+Enter for a new line</span>
+              </PromptInputTools>
               <PromptInputSubmit
                 status={busy ? "submitted" : "ready"}
                 disabled={busy || !prompt.trim()}
-                className="new-session-submit"
+                className="new-session-submit rounded-full border border-primary/30 bg-primary/90 px-4 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/15 hover:bg-primary"
               >
                 {busy ? <Loader2 className="animate-spin" /> : <Send />}
+                <span className="hidden sm:inline">Send</span>
               </PromptInputSubmit>
             </PromptInputFooter>
           </PromptInput>
@@ -1508,7 +1542,7 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
     );
 
     return (
-      <Tool key={key} defaultOpen={part.state !== "output-available"}>
+      <Tool key={key} defaultOpen={false}>
         {header}
         <ToolContent>
           <ToolInput input={part.input} />
@@ -1585,6 +1619,35 @@ function SessionChatView({
     };
   }, [session.session_id, setMessages]);
 
+  const followLatestKey = useMemo(() => {
+    const latestMessage = visibleMessages[visibleMessages.length - 1];
+    if (!latestMessage) return "empty";
+
+    const partsSignature = latestMessage.parts
+      .map((part) => {
+        if (part.type === "text") {
+          return `text:${part.text.length}`;
+        }
+
+        if (part.type === "reasoning") {
+          return `reasoning:${part.state}:${part.text.length}`;
+        }
+
+        if (isToolMessagePart(part)) {
+          return `tool:${part.type}:${part.state}:${part.title ?? ""}:${"toolName" in part ? part.toolName : ""}`;
+        }
+
+        if (part.type === "file") {
+          return `file:${part.url}`;
+        }
+
+        return part.type;
+      })
+      .join("|");
+
+    return `${latestMessage.id}:${latestMessage.role}:${partsSignature}`;
+  }, [visibleMessages]);
+
   useEffect(() => {
     if (!ready || !messagesLoaded || visibleMessages.length > 0 || status !== "ready") return;
     if (pendingInitialPrompt?.sessionId !== session.session_id) return;
@@ -1634,8 +1697,9 @@ function SessionChatView({
             {loadError ?? formatChatError(error)}
           </div>
         ) : null}
-        <Conversation className="min-h-0 flex-1 rounded-lg border border-border bg-background/20">
-          <ConversationContent className="gap-5 p-4">
+        <Conversation className="min-h-0 flex-1">
+          <ConversationContent className="gap-4 p-4 sm:p-5">
+            <ConversationFollowLatest followKey={followLatestKey} enabled={status === "streaming" || status === "submitted" || visibleMessages.length > 0} />
             {!messagesLoaded ? (
               <ConversationEmptyState
                 icon={<Loader2 className="h-5 w-5 animate-spin" />}
@@ -1667,7 +1731,11 @@ function SessionChatView({
           <ConversationScrollButton />
         </Conversation>
         <PromptInput
-          className="rounded-lg border border-input bg-background/50"
+          className={cn(
+            "rounded-2xl border border-border/70 bg-gradient-to-b from-background/80 via-background/55 to-background/30 shadow-[0_24px_70px_-48px_rgba(0,0,0,0.85)] backdrop-blur-xl",
+            "[&_[data-slot=input-group]]:overflow-hidden [&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-border/70 [&_[data-slot=input-group]]:bg-background/30 [&_[data-slot=input-group]]:shadow-none",
+            "[&_[data-slot=input-group-addon]]:bg-transparent"
+          )}
           onSubmit={async (message) => {
             const text = message.text.trim();
             if (!text || !ready || status !== "ready") return;
@@ -1675,23 +1743,43 @@ function SessionChatView({
             setInput("");
           }}
         >
+          <PromptInputHeader className="flex items-center justify-between gap-3 px-4 pt-4 pb-0 text-xs">
+            <span className="font-medium uppercase tracking-[0.24em] text-muted-foreground">
+              Compose
+            </span>
+            <span className="inline-flex items-center gap-2 text-muted-foreground">
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  composerStatusTone(status, ready) === "positive"
+                    ? "bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.12)]"
+                    : composerStatusTone(status, ready) === "warning"
+                      ? "bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.15)]"
+                      : "bg-rose-400 shadow-[0_0_0_3px_rgba(251,113,133,0.12)]"
+                )}
+              />
+              {composerStatusLabel(status, ready)}
+            </span>
+          </PromptInputHeader>
           <PromptInputBody>
             <PromptInputTextarea
               value={input}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value)}
               disabled={!ready || status === "submitted" || status === "streaming"}
               placeholder="Message OttoBot..."
-              className="min-h-16 border-0 bg-transparent"
+              className="min-h-24 border-0 bg-transparent px-4 py-3 text-[0.98rem] leading-6 placeholder:text-muted-foreground/65 focus-visible:ring-0"
             />
           </PromptInputBody>
-          <PromptInputFooter className="px-2 pb-2">
-            <PromptInputTools>
-              <StatusPill tone={chatStatusTone(status)}>{status}</StatusPill>
+          <PromptInputFooter className="items-center justify-between gap-3 border-t border-border/60 bg-background/25 px-4 py-3">
+            <PromptInputTools className="gap-2 text-xs text-muted-foreground">
+              <span>Enter sends</span>
+              <span className="text-muted-foreground/50">Shift+Enter for a new line</span>
             </PromptInputTools>
             <PromptInputSubmit
               status={status}
               onStop={stop}
               disabled={!canSubmit && status !== "submitted" && status !== "streaming"}
+              className="rounded-full border border-primary/30 bg-primary/90 px-4 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/15 hover:bg-primary"
             />
           </PromptInputFooter>
         </PromptInput>
