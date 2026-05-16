@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import {
   DefaultChatTransport,
   type ChatStatus,
+  type FileUIPart,
   type UIMessage,
 } from "ai";
 import { useChat } from "@ai-sdk/react";
@@ -143,7 +144,8 @@ import {
 import { cn } from "@/lib/utils";
 
 type RouteId = "sessions" | "settings";
-type PendingInitialPrompt = { sessionId: string; prompt: string };
+type CreateSessionInput = { prompt?: string; files?: FileUIPart[] };
+type PendingInitialPrompt = { sessionId: string; prompt: string; files: FileUIPart[] };
 
 type CreateFlowState = "idle" | "warming" | "creating" | "ready" | "error";
 type WarmupStepStatus = "pending" | "active" | "done" | "error";
@@ -618,7 +620,7 @@ export default function App() {
     updateWarmupStep("api", "done", "API is reachable");
   }
 
-  async function createSession() {
+  async function createSession(input: CreateSessionInput = {}) {
     setBusyAction("create-session");
     try {
       setApiError(null);
@@ -630,9 +632,13 @@ export default function App() {
         title: "Starting session",
         detail: "Creating container.",
       }));
-      const initialPrompt = prompt.trim() || "Start a new session.";
+      const initialPrompt = (input.prompt ?? prompt).trim() || "Start a new session.";
       const session = await ottobotApi.createSession(initialPrompt);
-      setPendingInitialPrompt({ sessionId: session.session_id, prompt: initialPrompt });
+      setPendingInitialPrompt({
+        files: input.files ?? [],
+        prompt: initialPrompt,
+        sessionId: session.session_id,
+      });
       setSelectedSessionId(session.session_id);
       setCurrentRoute("sessions");
       await refreshApi();
@@ -899,7 +905,7 @@ function SessionsWorkspace({
   runtime: RuntimeStatus | null;
   prompt: string;
   setPrompt: (value: string) => void;
-  createSession: () => void;
+  createSession: (input?: CreateSessionInput) => void;
   busyCreate: boolean;
   createFlow: CreateFlow;
   session: SessionSummary | null;
@@ -971,7 +977,7 @@ function NewSessionView({
   runtime: RuntimeStatus | null;
   prompt: string;
   setPrompt: (value: string) => void;
-  createSession: () => void;
+  createSession: (input?: CreateSessionInput) => void;
   busy: boolean;
   createFlow: CreateFlow;
 }) {
@@ -1012,7 +1018,7 @@ function NewSessionView({
             onSubmit={(message) => {
               const nextPrompt = message.text.trim();
               if (nextPrompt) setPrompt(nextPrompt);
-              if (!busy) void createSession();
+              if (!busy) void createSession({ files: message.files, prompt: nextPrompt });
             }}
           >
             <PromptInputHeader className="flex items-center justify-between gap-3 px-4 pt-4 pb-0 text-xs">
@@ -1693,7 +1699,10 @@ function SessionChatView({
 
     autoSubmittedRef.current = session.session_id;
     clearPendingInitialPrompt(session.session_id);
-    void sendMessage({ text: pendingInitialPrompt.prompt }).catch((submitError: unknown) => {
+    void sendMessage({
+      files: pendingInitialPrompt.files,
+      text: pendingInitialPrompt.prompt,
+    }).catch((submitError: unknown) => {
       autoSubmittedRef.current = null;
       setLoadError(formatChatError(submitError));
     });
