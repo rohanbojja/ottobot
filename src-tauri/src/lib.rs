@@ -12,6 +12,8 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectStat
 
 const API_PORT: u16 = 3000;
 const DEFAULT_AGENT_IMAGE: &str = "ottobot-agent";
+const DEFAULT_LLM_PROVIDER: &str = "openai";
+const DEFAULT_LLM_MODEL: &str = "gpt-4.1-nano";
 
 #[derive(Default)]
 struct ProcessRegistry {
@@ -60,6 +62,10 @@ struct RuntimeSettings {
 struct ProviderConfig {
     active_provider: String,
     active_model: String,
+    #[serde(default)]
+    codex_cli_path: String,
+    #[serde(default)]
+    codex_cli_cwd: String,
     codex_oauth: CodexOAuthConfig,
     kimi_coding: KimiCodingPlan,
     updated_at_ms: u64,
@@ -173,14 +179,16 @@ fn is_repo_root(path: &Path) -> bool {
 
 fn default_provider_config() -> ProviderConfig {
     ProviderConfig {
-        active_provider: "codex-oauth".to_string(),
-        active_model: "gpt-5.3-codex".to_string(),
+        active_provider: DEFAULT_LLM_PROVIDER.to_string(),
+        active_model: DEFAULT_LLM_MODEL.to_string(),
+        codex_cli_path: String::new(),
+        codex_cli_cwd: String::new(),
         codex_oauth: CodexOAuthConfig {
             enabled: true,
-            model: "gpt-5.3-codex".to_string(),
+            model: "gpt-5.5".to_string(),
             reasoning_effort: "medium".to_string(),
-            approval_mode: "on-request".to_string(),
-            sandbox_mode: "workspace-write".to_string(),
+            approval_mode: "never".to_string(),
+            sandbox_mode: "read-only".to_string(),
         },
         kimi_coding: KimiCodingPlan {
             enabled: false,
@@ -192,11 +200,44 @@ fn default_provider_config() -> ProviderConfig {
             notes: vec![
                 "Kimi Code membership uses the coding base URL and stable kimi-for-coding model.".to_string(),
                 "Moonshot platform keys can use @ai-sdk/moonshotai with https://api.moonshot.ai/v1 and K2 models.".to_string(),
-                "Wire this after the agent runtime is moved from LangGraph model construction to an AI SDK provider registry.".to_string(),
+                "Direct OpenAI, Anthropic, and Gemini API keys are resolved by the local AI SDK runtime; UI-managed provider registry support is still planned.".to_string(),
             ],
         },
         updated_at_ms: now_ms(),
     }
+}
+
+fn default_model_for_provider(provider: &str) -> &'static str {
+    match provider {
+        "anthropic" => "claude-3-5-haiku-latest",
+        "google" => "gemini-2.5-flash",
+        "codex-cli" => "gpt-5.5",
+        _ => DEFAULT_LLM_MODEL,
+    }
+}
+
+fn normalize_provider_config(mut config: ProviderConfig) -> ProviderConfig {
+    config.active_provider = match config.active_provider.trim() {
+        "anthropic" => "anthropic".to_string(),
+        "google" => "google".to_string(),
+        "codex" | "codex-oauth" | "codex-cli" => "codex-cli".to_string(),
+        "openai" => "openai".to_string(),
+        _ => DEFAULT_LLM_PROVIDER.to_string(),
+    };
+
+    config.active_model = config.active_model.trim().to_string();
+    if config.active_model.is_empty() {
+        config.active_model = default_model_for_provider(&config.active_provider).to_string();
+    }
+
+    config.codex_cli_path = config.codex_cli_path.trim().to_string();
+    config.codex_cli_cwd = config.codex_cli_cwd.trim().to_string();
+    config.codex_oauth.model = config.codex_oauth.model.trim().to_string();
+    if config.codex_oauth.model.is_empty() {
+        config.codex_oauth.model = "gpt-5.5".to_string();
+    }
+
+    config
 }
 
 fn default_runtime_settings() -> RuntimeSettings {
@@ -249,6 +290,20 @@ fn read_runtime_settings(app: &AppHandle) -> Result<RuntimeSettings, String> {
     let settings = serde_json::from_str::<RuntimeSettings>(&content)
         .map_err(|error| format!("failed to parse runtime settings {}: {error}", path.display()))?;
     normalize_runtime_settings(settings)
+}
+
+fn read_provider_config(app: &AppHandle) -> Result<ProviderConfig, String> {
+    let path = provider_config_path(app)?;
+
+    if !path.is_file() {
+        return Ok(default_provider_config());
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read provider config {}: {error}", path.display()))?;
+    let config = serde_json::from_str::<ProviderConfig>(&content)
+        .map_err(|error| format!("failed to parse provider config {}: {error}", path.display()))?;
+    Ok(normalize_provider_config(config))
 }
 
 fn resolved_agent_image(settings: &RuntimeSettings) -> &str {
@@ -522,7 +577,11 @@ fn managed_status(
     status(key, label, "stopped", false, None, "not running", None)
 }
 
-fn spawn_service(script: &str, agent_image: Option<&str>) -> Result<ManagedChild, String> {
+fn spawn_service(
+    script: &str,
+    agent_image: Option<&str>,
+    provider_config: Option<&ProviderConfig>,
+) -> Result<ManagedChild, String> {
     let root = repo_root()?;
     let log_dir = desktop_log_dir();
     fs::create_dir_all(&log_dir)
@@ -562,6 +621,16 @@ fn spawn_service(script: &str, agent_image: Option<&str>) -> Result<ManagedChild
 
     if let Some(image) = agent_image {
         command.env("AGENT_IMAGE", image);
+    }
+    if let Some(provider) = provider_config {
+        command.env("LLM_PROVIDER", &provider.active_provider);
+        command.env("LLM_MODEL", &provider.active_model);
+        if !provider.codex_cli_path.is_empty() {
+            command.env("CODEX_CLI_PATH", &provider.codex_cli_path);
+        }
+        if !provider.codex_cli_cwd.is_empty() {
+            command.env("CODEX_CLI_CWD", &provider.codex_cli_cwd);
+        }
     }
 
     let child = command
@@ -609,6 +678,7 @@ async fn check_local_runtime(app: AppHandle) -> Result<RuntimeStatus, String> {
 fn start_local_service_blocking(app: AppHandle, service: String) -> Result<ServiceStatus, String> {
     let settings = read_runtime_settings(&app)?;
     let image = resolved_agent_image(&settings).to_string();
+    let provider_config = read_provider_config(&app)?;
 
     match service.as_str() {
         "agentImage" => return build_agent_image(&image),
@@ -625,7 +695,7 @@ fn start_local_service_blocking(app: AppHandle, service: String) -> Result<Servi
             if current.state == "running" {
                 return Ok(current);
             }
-            registry.api = Some(spawn_service("dev:api", Some(&image))?);
+            registry.api = Some(spawn_service("dev:api", Some(&image), Some(&provider_config))?);
             std::thread::sleep(Duration::from_millis(350));
             Ok(managed_status(&mut registry.api, "api", "API", Some(API_PORT)))
         }
@@ -692,16 +762,7 @@ fn save_runtime_settings(app: AppHandle, settings: RuntimeSettings) -> Result<Ru
 
 #[tauri::command]
 fn get_provider_config(app: AppHandle) -> Result<ProviderConfig, String> {
-    let path = provider_config_path(&app)?;
-
-    if !path.is_file() {
-        return Ok(default_provider_config());
-    }
-
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("failed to read provider config {}: {error}", path.display()))?;
-    serde_json::from_str::<ProviderConfig>(&content)
-        .map_err(|error| format!("failed to parse provider config {}: {error}", path.display()))
+    read_provider_config(&app)
 }
 
 #[tauri::command]
@@ -713,6 +774,7 @@ fn save_provider_config(app: AppHandle, mut config: ProviderConfig) -> Result<Pr
     fs::create_dir_all(parent)
         .map_err(|error| format!("failed to create provider config dir {}: {error}", parent.display()))?;
 
+    config = normalize_provider_config(config);
     config.updated_at_ms = now_ms();
     let content = serde_json::to_string_pretty(&config)
         .map_err(|error| format!("failed to serialize provider config: {error}"))?;

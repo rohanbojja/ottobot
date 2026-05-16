@@ -25,7 +25,7 @@ export interface SessionResponse {
   session_id: string;
   status: SessionStatus;
   vnc_url: string;
-  chat_url: string;
+  chat_endpoint: string;
   created_at: string;
   expires_at: string;
   initial_prompt: string;
@@ -62,17 +62,6 @@ export type SessionCommand =
         containerId?: string;
         vncPort?: number;
         mcpPort?: number;
-      };
-    }
-  | {
-      type: 'process_message';
-      sessionId: string;
-      data: {
-        message: {
-          type: 'user_prompt';
-          content: string;
-          timestamp: number;
-        };
       };
     };
 
@@ -115,6 +104,10 @@ export interface HealthStatus {
     docker: boolean;
     registry: boolean;
     sessions: number;
+  };
+  agent: {
+    provider: string;
+    model: string;
   };
 }
 

@@ -30,9 +30,13 @@ export type RuntimeSettings = {
   updatedAtMs: number;
 };
 
+export type LlmProvider = "openai" | "anthropic" | "google" | "codex-cli";
+
 export type ProviderConfig = {
-  activeProvider: string;
+  activeProvider: LlmProvider;
   activeModel: string;
+  codexCliPath: string;
+  codexCliCwd: string;
   codexOauth: {
     enabled: boolean;
     model: string;

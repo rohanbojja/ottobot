@@ -1,10 +1,10 @@
-import type { ChatMessage, Session, SessionCommand, SessionStatus } from "@/shared/types";
+import type { UIMessage } from "ai";
+import type { Session, SessionCommand, SessionStatus } from "@/shared/types";
 
 export type SessionJob = SessionCommand;
 
 export type AgentEvent =
   | { type: "thinking"; content: string; metadata?: Record<string, unknown> }
-  | { type: "response"; content: string; metadata?: Record<string, unknown> }
   | { type: "tool_call"; content: string; toolName?: string; metadata?: Record<string, unknown> }
   | { type: "tool_result"; content: string; toolName?: string; metadata?: Record<string, unknown> }
   | { type: "system"; content: string; metadata?: Record<string, unknown> }
@@ -12,7 +12,13 @@ export type AgentEvent =
 
 export interface AgentRuntime {
   initialize(initialPrompt?: string): Promise<void>;
-  processMessage(message: string): Promise<void>;
+  streamMessages(
+    messages: UIMessage[],
+    options?: {
+      abortSignal?: AbortSignal;
+      onFinish?: (messages: UIMessage[]) => Promise<void>;
+    },
+  ): Promise<Response>;
   shutdown(): Promise<void>;
 }
 
@@ -74,7 +80,8 @@ export interface SessionStorePort {
     message: string,
     metadata?: Record<string, unknown>,
   ): Promise<void>;
-  addSessionMessage(sessionId: string, message: ChatMessage): Promise<void>;
+  upsertSessionUIMessages(sessionId: string, messages: UIMessage[]): Promise<void>;
+  getSessionUIMessages(sessionId: string): Promise<UIMessage[]>;
   deleteSession(sessionId: string): Promise<void>;
   allocateVncPort(): Promise<number | null>;
   releaseVncPort(port: number): Promise<void>;
@@ -84,7 +91,7 @@ export interface SessionStorePort {
 
 export interface SessionOrchestrator {
   createSession(job: Extract<SessionJob, { type: "create_session" }>, context?: OrchestrationContext): Promise<void>;
-  processMessage(job: Extract<SessionJob, { type: "process_message" }>, context?: OrchestrationContext): Promise<void>;
+  streamMessages(sessionId: string, messages: UIMessage[], abortSignal?: AbortSignal): Promise<Response>;
   terminateSession(job: Extract<SessionJob, { type: "terminate_session" }>, context?: OrchestrationContext): Promise<void>;
 }
 

@@ -1,7 +1,7 @@
-import { SessionRouter } from "@/shared/session-router";
 import { createLogger } from "@/shared/logger";
+import { sanitizeUIMessages } from "@/shared/ui-messages";
+import type { UIMessage } from "ai";
 import type {
-  AgentEvent,
   AgentRuntime,
   AgentRuntimeFactory,
   OrchestrationContext,
@@ -11,11 +11,9 @@ import type {
   SessionStorePort,
   WorkspaceManager,
 } from "@/application/ports";
-import type { ChatMessage } from "@/shared/types";
 
 type CreateSessionJob = Extract<SessionJob, { type: "create_session" }>;
 type TerminateSessionJob = Extract<SessionJob, { type: "terminate_session" }>;
-type ProcessMessageJob = Extract<SessionJob, { type: "process_message" }>;
 
 const logger = createLogger("session-orchestrator");
 
@@ -37,7 +35,7 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
 
   async createSession(job: CreateSessionJob, context: OrchestrationContext = {}): Promise<void> {
     const { sessionId, data } = job;
-    const { initialPrompt, environment, vncPort } = data;
+    const { environment, vncPort } = data;
     let mcpPort: number | null = null;
     let sandboxId: string | null = null;
 
@@ -92,21 +90,11 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
 
       await context.updateProgress?.(70);
       await this.deps.sessionStore.addSessionLog(sessionId, "info", "Starting AI agent...");
-      await this.deps.sessionStore.updateSessionStatus(sessionId, "ready");
-      await this.startAgent(sessionId, sandbox.id, initialPrompt, mcpPort);
+      await this.startAgent(sessionId, sandbox.id, mcpPort);
 
       await context.updateProgress?.(90);
       await this.deps.sessionStore.updateSessionStatus(sessionId, "ready");
       await this.deps.sessionStore.addSessionLog(sessionId, "info", "Session ready");
-
-      await SessionRouter.publish(sessionId, {
-        type: "system_update",
-        content: "Session is ready. You can start chatting!",
-        timestamp: Date.now(),
-        metadata: {
-          vnc_ready: true,
-        },
-      });
 
       await context.updateProgress?.(100);
       logger.info(`Session ${sessionId} created successfully`);
@@ -220,92 +208,30 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
     }
   }
 
-  async processMessage(job: ProcessMessageJob): Promise<void> {
-    const { sessionId, data } = job;
-    const { message } = data;
-
-    try {
-      const session = await this.deps.sessionStore.getSession(sessionId);
-      if (!session) {
-        throw new Error("Session not found");
-      }
-
-      let agent = this.activeAgents.get(sessionId);
-      if (!agent) {
-        logger.warn(`Agent not found for session ${sessionId}, attempting to start agent...`);
-
-        if (!session.containerId || !session.mcpPort) {
-          throw new Error("Cannot start agent: session missing sandbox or MCP port");
-        }
-
-        const sandboxRunning = await this.deps.sandboxBackend.isSandboxRunning(session.containerId);
-        if (!sandboxRunning) {
-          throw new Error("Cannot start agent: sandbox is not running");
-        }
-
-        try {
-          await this.deps.sessionStore.addSessionLog(sessionId, "info", "Recovering agent...");
-          await this.startAgent(sessionId, session.containerId, session.initialPrompt, session.mcpPort);
-          agent = this.activeAgents.get(sessionId);
-
-          if (!agent) {
-            throw new Error("Failed to start agent");
-          }
-
-          await this.deps.sessionStore.addSessionLog(sessionId, "info", "Agent recovered successfully");
-          await SessionRouter.publish(sessionId, {
-            type: "system_update",
-            content: "Agent connection restored. You can continue chatting.",
-            timestamp: Date.now(),
-          });
-
-          logger.info(`Successfully recovered agent for session ${sessionId}`);
-        } catch (agentError) {
-          logger.error(`Failed to recover agent for session ${sessionId}:`, agentError);
-          throw new Error(`Agent recovery failed: ${agentError instanceof Error ? agentError.message : String(agentError)}`);
-        }
-      }
-
-      await SessionRouter.publish(sessionId, {
-        type: "user_prompt",
-        content: message.content,
-        timestamp: Date.now(),
-      });
-
-      await agent.processMessage(message.content);
-      logger.info(`Processed message for session ${sessionId}`);
-    } catch (error) {
-      logger.error(`Failed to process message for session ${sessionId}:`, error);
-
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      await SessionRouter.publish(sessionId, {
-        type: "error",
-        content: `Failed to process message: ${errorMessage}`,
-        timestamp: Date.now(),
-      });
-
-      throw error;
-    }
-  }
-
-  async handleJobFailure(sessionId: string, error: Error): Promise<void> {
-    await this.deps.sessionStore.updateSessionStatus(sessionId, "error", error.message);
-    await this.deps.sessionStore.addSessionLog(sessionId, "error", `Job failed: ${error.message}`);
-  }
-
-  async cleanup(): Promise<void> {
-    logger.info("Cleaning up active sessions...");
-
-    for (const [sessionId, agent] of this.activeAgents) {
-      try {
-        await agent.shutdown();
-        await this.deps.sessionStore.updateSessionStatus(sessionId, "terminated");
-      } catch (error) {
-        logger.error(`Failed to cleanup session ${sessionId}:`, error);
-      }
+  async streamMessages(
+    sessionId: string,
+    messages: UIMessage[],
+    abortSignal?: AbortSignal,
+  ): Promise<Response> {
+    const session = await this.deps.sessionStore.getSession(sessionId);
+    if (!session) {
+      throw new Error("Session not found");
     }
 
-    this.activeAgents.clear();
+    const agent = await this.ensureAgent(sessionId, session);
+    const sanitizedMessages = sanitizeUIMessages(messages);
+    await this.deps.sessionStore.upsertSessionUIMessages(sessionId, sanitizedMessages);
+
+    return agent.streamMessages(sanitizedMessages, {
+      abortSignal,
+      onFinish: async (nextMessages) => {
+        const sanitizedNextMessages = sanitizeUIMessages(nextMessages);
+        await this.deps.sessionStore.upsertSessionUIMessages(sessionId, sanitizedNextMessages);
+        await this.deps.sessionStore.addSessionLog(sessionId, "info", "Persisted AI SDK UI messages", {
+          messageCount: sanitizedNextMessages.length,
+        });
+      },
+    });
   }
 
   private async recordStartupFailure(
@@ -339,16 +265,6 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
       );
     } catch (logError) {
       logger.error(`Failed to write startup failure log for session ${sessionId}:`, logError);
-    }
-
-    try {
-      await SessionRouter.publish(sessionId, {
-        type: "error",
-        content: `Session startup failed: ${message}`,
-        timestamp: Date.now(),
-      });
-    } catch (publishError) {
-      logger.warn(`Failed to publish startup failure for session ${sessionId}:`, publishError);
     }
   }
 
@@ -389,7 +305,34 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
     }
   }
 
-  private async startAgent(sessionId: string, sandboxId: string, initialPrompt: string, mcpPort: number): Promise<void> {
+  private async ensureAgent(sessionId: string, session: NonNullable<Awaited<ReturnType<SessionStorePort["getSession"]>>>): Promise<AgentRuntime> {
+    const activeAgent = this.activeAgents.get(sessionId);
+    if (activeAgent) {
+      return activeAgent;
+    }
+
+    if (!session.containerId || !session.mcpPort) {
+      throw new Error("Cannot start agent: session missing sandbox or MCP port");
+    }
+
+    const sandboxRunning = await this.deps.sandboxBackend.isSandboxRunning(session.containerId);
+    if (!sandboxRunning) {
+      throw new Error("Cannot start agent: sandbox is not running");
+    }
+
+    await this.deps.sessionStore.addSessionLog(sessionId, "info", "Recovering AI SDK agent...");
+    await this.startAgent(sessionId, session.containerId, session.mcpPort);
+    const recoveredAgent = this.activeAgents.get(sessionId);
+
+    if (!recoveredAgent) {
+      throw new Error("Failed to start agent");
+    }
+
+    await this.deps.sessionStore.addSessionLog(sessionId, "info", "Agent recovered successfully");
+    return recoveredAgent;
+  }
+
+  private async startAgent(sessionId: string, sandboxId: string, mcpPort: number): Promise<void> {
     logger.info(`Starting agent for session ${sessionId} (sandbox: ${sandboxId}) with MCP port ${mcpPort}`);
 
     const agent = this.deps.agentRuntimeFactory.create({
@@ -397,14 +340,17 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
       mcpHost: "localhost",
       mcpPort,
       emit: async (event) => {
-        const message = this.toChatMessage(event);
-        await SessionRouter.publish(sessionId, message);
-        await this.deps.sessionStore.addSessionMessage(sessionId, message);
+        await this.deps.sessionStore.addSessionLog(
+          sessionId,
+          event.type === "error" ? "error" : "info",
+          event.content,
+          event.metadata,
+        );
       },
     });
 
+    await agent.initialize();
     this.activeAgents.set(sessionId, agent);
-    await agent.initialize(initialPrompt);
   }
 
   private async releasePorts(vncPort?: number, mcpPort?: number | null): Promise<void> {
@@ -417,25 +363,4 @@ export class DefaultSessionOrchestrator implements SessionOrchestrator {
     }
   }
 
-  private toChatMessage(event: AgentEvent): ChatMessage {
-    const timestamp = Date.now();
-
-    switch (event.type) {
-      case "thinking":
-        return { type: "agent_thinking", content: event.content, timestamp, metadata: event.metadata as ChatMessage["metadata"] };
-      case "response":
-        return { type: "agent_response", content: event.content, timestamp, metadata: event.metadata as ChatMessage["metadata"] };
-      case "tool_call":
-      case "tool_result":
-        const metadata = {
-          ...event.metadata,
-          ...(event.toolName ? { tool_used: event.toolName } : {}),
-        } as ChatMessage["metadata"];
-        return { type: "agent_action", content: event.content, timestamp, metadata };
-      case "system":
-        return { type: "system_update", content: event.content, timestamp, metadata: event.metadata as ChatMessage["metadata"] };
-      case "error":
-        return { type: "error", content: event.content, timestamp, metadata: event.metadata as ChatMessage["metadata"] };
-    }
-  }
 }

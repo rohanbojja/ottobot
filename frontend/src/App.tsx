@@ -1,4 +1,43 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  DefaultChatTransport,
+  type ChatStatus,
+  type UIMessage,
+} from "ai";
+import { useChat } from "@ai-sdk/react";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+  type ToolPart,
+} from "@/components/ai-elements/tool";
 import {
   Activity,
   Bot,
@@ -17,14 +56,12 @@ import {
   RefreshCw,
   Save,
   Send,
-  Settings2,
+  Settings,
   Square,
   Terminal,
   Trash2,
-  Zap,
 } from "lucide-react";
 
-import TopDeskTabs from "@/components/TopDeskTabs";
 import {
   deskHeaderClass,
   deskIconControlPillClass,
@@ -46,6 +83,13 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
@@ -68,7 +112,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   ottobotApi,
   statusTone,
-  type ChatMessageWire,
   type HealthResponse,
   type MetricsResponse,
   type SessionLogEntry,
@@ -77,28 +120,25 @@ import {
 import {
   checkLocalRuntime,
   DEFAULT_AGENT_IMAGE,
+  getProviderConfig,
   getRuntimeSettings,
   hasTauriRuntime,
+  saveProviderConfig,
   saveRuntimeSettings,
   startLocalService,
   stopLocalService,
   startWindowDrag,
   type LocalServiceName,
+  type LlmProvider,
   type ManagedServiceStatus,
+  type ProviderConfig,
   type RuntimeSettings,
   type RuntimeStatus,
 } from "@/lib/tauri-runtime";
 import { cn } from "@/lib/utils";
 
 type RouteId = "sessions" | "settings";
-type ChatMessage = {
-  id: string;
-  role: "user" | "agent" | "system" | "action" | "error" | "thinking";
-  label: string;
-  content: string;
-  timestamp: number;
-};
-type SocketState = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+type PendingInitialPrompt = { sessionId: string; prompt: string };
 
 type CreateFlowState = "idle" | "warming" | "creating" | "ready" | "error";
 type WarmupStepStatus = "pending" | "active" | "done" | "error";
@@ -116,36 +156,54 @@ type CreateFlow = {
   steps: WarmupStep[];
 };
 
-const navItems = [
-  { id: "sessions", label: "Sessions", shortcutLabel: "Cmd+1" },
-  { id: "settings", label: "Settings", shortcutLabel: "Cmd+2" },
-] satisfies Array<{ id: RouteId; label: string; shortcutLabel: string }>;
+const routeShortcuts = [
+  { id: "sessions", shortcutLabel: "Cmd+1" },
+  { id: "settings", shortcutLabel: "Cmd+2" },
+] satisfies Array<{ id: RouteId; shortcutLabel: string }>;
 
 const CREATE_STEPS: WarmupStep[] = [
-  { id: "docker", label: "Docker", detail: "Checking local sandbox runtime", status: "pending" },
-  { id: "agentImage", label: "Agent image", detail: "Checking sandbox image", status: "pending" },
-  { id: "api", label: "API", detail: "Preparing HTTP and WebSocket server", status: "pending" },
-  { id: "session", label: "Session", detail: "Booting container and agent", status: "pending" },
+  { id: "docker", label: "Docker", detail: "Checking Docker", status: "pending" },
+  { id: "agentImage", label: "Image", detail: "Checking image", status: "pending" },
+  { id: "api", label: "API", detail: "Preparing API", status: "pending" },
+  { id: "session", label: "Session", detail: "Starting session", status: "pending" },
 ];
 
 const IDLE_CREATE_FLOW: CreateFlow = {
   state: "idle",
   title: "Ready",
-  detail: "Create starts the local runtime if needed.",
+  detail: "Ready.",
   steps: CREATE_STEPS,
 };
 const LOG_REFRESH_INTERVAL_MS = 12_000;
-const SOCKET_RECONNECT_BASE_MS = 750;
-const SOCKET_RECONNECT_MAX_MS = 12_000;
 const GET_STARTED_PROMPTS = [
-  "Build a small TypeScript app",
-  "Fix a UI alignment issue",
-  "Add a Tauri command",
-  "Create a focused React screen",
+  "Fix a UI bug",
+  "Add a command",
+  "Create a screen",
+  "Review a change",
 ];
+const LLM_PROVIDER_OPTIONS = [
+  { id: "openai", label: "OpenAI", detail: "OPENAI_API_KEY" },
+  { id: "anthropic", label: "Anthropic", detail: "ANTHROPIC_API_KEY" },
+  { id: "google", label: "Google Gemini", detail: "GEMINI_API_KEY" },
+  { id: "codex-cli", label: "Codex CLI", detail: "codex login" },
+] satisfies Array<{ id: LlmProvider; label: string; detail: string }>;
+const DEFAULT_PROVIDER_MODELS = {
+  openai: "gpt-4.1-nano",
+  anthropic: "claude-3-5-haiku-latest",
+  google: "gemini-2.5-flash",
+  "codex-cli": "gpt-5.5",
+} satisfies Record<LlmProvider, string>;
 
 function freshCreateSteps() {
   return CREATE_STEPS.map((step) => ({ ...step }));
+}
+
+function defaultModelForProvider(provider: LlmProvider) {
+  return DEFAULT_PROVIDER_MODELS[provider];
+}
+
+function labelForProvider(provider: LlmProvider | string) {
+  return LLM_PROVIDER_OPTIONS.find((option) => option.id === provider)?.label ?? provider;
 }
 
 function delay(ms: number) {
@@ -200,13 +258,9 @@ function vncClientUrl(rawUrl: string, resize: "scale" | "remote" = "scale") {
   }
 }
 
-function sessionAcceptsSocket(status: SessionSummary["status"]) {
-  return status === "ready" || status === "running";
-}
-
-function socketStateTone(state: SocketState): Tone {
-  if (state === "connected") return "positive";
-  if (state === "connecting" || state === "reconnecting") return "warning";
+function chatStatusTone(state: ChatStatus | "idle"): Tone {
+  if (state === "ready") return "positive";
+  if (state === "submitted" || state === "streaming") return "warning";
   if (state === "error") return "negative";
   return "neutral";
 }
@@ -219,48 +273,6 @@ function logLevelTone(level: string): Tone {
   return "info";
 }
 
-function messageDedupKey(message: ChatMessageWire) {
-  if (message.type === "system_update" && message.content === "Connected to session") {
-    return JSON.stringify([message.type, message.content]);
-  }
-
-  return JSON.stringify([
-    message.type,
-    message.timestamp,
-    message.content ?? "",
-    message.error ?? "",
-  ]);
-}
-
-function messageFromWire(message: ChatMessageWire): ChatMessage {
-  const content = message.content ?? message.error ?? "No message content";
-  const id = `${message.type}-${message.timestamp}-${content.slice(0, 24)}`;
-
-  switch (message.type) {
-    case "user_prompt":
-      return { id, role: "user", label: "You", content, timestamp: message.timestamp };
-    case "agent_response":
-      return { id, role: "agent", label: "OttoBot", content, timestamp: message.timestamp };
-    case "agent_action":
-      return { id, role: "action", label: "Action", content, timestamp: message.timestamp };
-    case "agent_thinking":
-      return { id, role: "thinking", label: "Thinking", content, timestamp: message.timestamp };
-    case "error":
-      return { id, role: "error", label: "Error", content, timestamp: message.timestamp };
-    default:
-      return { id, role: "system", label: "System", content, timestamp: message.timestamp };
-  }
-}
-
-function messageClass(role: ChatMessage["role"]) {
-  if (role === "user") return "ml-auto border-sky-400/20 bg-sky-400/10";
-  if (role === "agent") return "border-emerald-400/20 bg-emerald-400/10";
-  if (role === "action") return "border-violet-400/20 bg-violet-400/10 font-mono";
-  if (role === "thinking") return "border-amber-400/20 bg-amber-400/10";
-  if (role === "error") return "border-rose-400/25 bg-rose-400/10 text-rose-100";
-  return "mx-auto border-white/10 bg-white/[0.04] text-center";
-}
-
 export default function App() {
   const isTauri = hasTauriRuntime();
   const [currentRoute, setCurrentRoute] = useState<RouteId>("sessions");
@@ -268,26 +280,22 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null);
+  const [providerConfig, setProviderConfig] = useState<ProviderConfig | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState("");
-  const [prompt, setPrompt] = useState("Help me build a small TypeScript app.");
+  const [pendingInitialPrompt, setPendingInitialPrompt] = useState<PendingInitialPrompt | null>(null);
+  const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
+  const [prompt, setPrompt] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [createFlow, setCreateFlow] = useState<CreateFlow>(() => ({
     ...IDLE_CREATE_FLOW,
     steps: freshCreateSteps(),
   }));
   const [apiError, setApiError] = useState<string | null>(null);
-  const [socketState, setSocketState] = useState<SocketState>("idle");
   const [sessionLogs, setSessionLogs] = useState<SessionLogEntry[]>([]);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsUpdatedAt, setLogsUpdatedAt] = useState<number | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const seenMessages = useRef<Set<string>>(new Set());
-  const reconnectTimerRef = useRef<number | null>(null);
-  const reconnectAttemptRef = useRef(0);
   const selectedSessionIdRef = useRef<string | null>(null);
   const logsRequestInFlightRef = useRef<string | null>(null);
   selectedSessionIdRef.current = selectedSessionId;
@@ -296,7 +304,6 @@ export default function App() {
     () => sessions.find((session) => session.session_id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
-  const selectedSessionAcceptsSocket = selectedSession ? sessionAcceptsSocket(selectedSession.status) : false;
 
   const refreshRuntime = useCallback(async () => {
     if (!hasTauriRuntime()) return;
@@ -321,7 +328,12 @@ export default function App() {
 
   const refreshSettings = useCallback(async () => {
     if (!hasTauriRuntime()) return;
-    setRuntimeSettings(await getRuntimeSettings());
+    const [nextRuntimeSettings, nextProviderConfig] = await Promise.all([
+      getRuntimeSettings(),
+      getProviderConfig(),
+    ]);
+    setRuntimeSettings(nextRuntimeSettings);
+    setProviderConfig(nextProviderConfig);
   }, []);
 
   const refreshAll = useCallback(async () => {
@@ -373,7 +385,7 @@ export default function App() {
       }
       if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
       const index = Number.parseInt(event.key, 10) - 1;
-      const route = navItems[index]?.id;
+      const route = routeShortcuts[index]?.id;
       if (route) {
         event.preventDefault();
         setCurrentRoute(route);
@@ -385,8 +397,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    seenMessages.current.clear();
-    setMessages([]);
+    setChatStatus("ready");
   }, [selectedSession?.session_id]);
 
   useEffect(() => {
@@ -413,7 +424,7 @@ export default function App() {
         ...current,
         state: "ready",
         title: "Session ready",
-        detail: "The sandbox and local agent are ready.",
+        detail: "Ready.",
         steps: current.steps.map((step) =>
           step.id === "session" ? { ...step, status: "done", detail: "Session ready" } : step,
         ),
@@ -426,124 +437,13 @@ export default function App() {
         ...current,
         state: "error",
         title: "Create failed",
-        detail: "Session startup failed. Open diagnostics for the captured logs.",
+        detail: "Startup failed.",
         steps: current.steps.map((step) =>
           step.id === "session" ? { ...step, status: "error", detail: "Startup failed" } : step,
         ),
       }));
     }
   }, [createFlow.state, selectedSession]);
-
-  useEffect(() => {
-    let active = true;
-    let currentSocket: WebSocket | null = null;
-
-    const clearReconnectTimer = () => {
-      if (reconnectTimerRef.current === null) return;
-      window.clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    };
-
-    const appendSocketMessage = (data: string) => {
-      try {
-        const wireMessage = JSON.parse(data) as ChatMessageWire;
-        const dedupKey = messageDedupKey(wireMessage);
-        if (seenMessages.current.has(dedupKey)) return;
-        seenMessages.current.add(dedupKey);
-        setMessages((current) => [...current, messageFromWire(wireMessage)]);
-      } catch (error) {
-        const timestamp = Date.now();
-        setMessages((current) => [
-          ...current,
-          {
-            id: `parse-${timestamp}`,
-            role: "error",
-            label: "Parse error",
-            content: error instanceof Error ? error.message : String(error),
-            timestamp,
-          },
-        ]);
-      }
-    };
-
-    const scheduleReconnect = (connect: () => void) => {
-      if (!active) return;
-      if (reconnectTimerRef.current !== null) return;
-
-      const attempt = Math.min(reconnectAttemptRef.current + 1, 8);
-      reconnectAttemptRef.current = attempt;
-      const delayMs = Math.min(
-        SOCKET_RECONNECT_BASE_MS * 2 ** (attempt - 1),
-        SOCKET_RECONNECT_MAX_MS,
-      );
-
-      setSocketState("reconnecting");
-      reconnectTimerRef.current = window.setTimeout(() => {
-        reconnectTimerRef.current = null;
-        connect();
-      }, delayMs);
-    };
-
-    if (!selectedSession || !selectedSessionAcceptsSocket) {
-      clearReconnectTimer();
-      reconnectAttemptRef.current = 0;
-      setSocketState("idle");
-      return;
-    }
-
-    const connect = () => {
-      if (!active) return;
-      setSocketState(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
-
-      let socket: WebSocket;
-      try {
-        socket = new WebSocket(selectedSession.chat_url);
-      } catch (error) {
-        setSocketState("error");
-        scheduleReconnect(connect);
-        return;
-      }
-
-      currentSocket = socket;
-      socketRef.current = socket;
-
-      socket.onopen = () => {
-        if (!active || socketRef.current !== socket) return;
-        reconnectAttemptRef.current = 0;
-        clearReconnectTimer();
-        setSocketState("connected");
-      };
-
-      socket.onerror = () => {
-        if (!active || socketRef.current !== socket) return;
-        setSocketState("error");
-        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-          socket.close();
-        }
-      };
-
-      socket.onclose = () => {
-        if (!active || socketRef.current !== socket) return;
-        socketRef.current = null;
-        scheduleReconnect(connect);
-      };
-
-      socket.onmessage = (event) => appendSocketMessage(String(event.data));
-    };
-
-    reconnectAttemptRef.current = 0;
-    connect();
-
-    return () => {
-      active = false;
-      clearReconnectTimer();
-      reconnectAttemptRef.current = 0;
-      if (socketRef.current === currentSocket) socketRef.current = null;
-      if (currentSocket && currentSocket.readyState !== WebSocket.CLOSED) {
-        currentSocket.close(1000, "component cleanup");
-      }
-    };
-  }, [selectedSession?.chat_url, selectedSession?.session_id, selectedSessionAcceptsSocket]);
 
   async function runServiceAction(service: LocalServiceName, action: "start" | "stop") {
     setBusyAction(`${action}-${service}`);
@@ -566,6 +466,21 @@ export default function App() {
       if (!hasTauriRuntime()) throw new Error("Run inside Tauri to save runtime settings.");
       const saved = await saveRuntimeSettings(nextSettings);
       setRuntimeSettings(saved);
+      setApiError(null);
+      await refreshRuntime();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function updateProviderConfig(nextConfig: ProviderConfig) {
+    setBusyAction("save-provider-config");
+    try {
+      if (!hasTauriRuntime()) throw new Error("Run inside Tauri to save provider settings.");
+      const saved = await saveProviderConfig(nextConfig);
+      setProviderConfig(saved);
       setApiError(null);
       await refreshRuntime();
     } catch (error) {
@@ -643,14 +558,14 @@ export default function App() {
   async function prepareRuntimeForCreate() {
     setCreateFlow({
       state: "warming",
-      title: "Warming local runtime",
-      detail: "Checking Docker, image, and API before creating the session.",
+      title: "Starting",
+      detail: "Checking runtime.",
       steps: freshCreateSteps(),
     });
 
     if (!isTauri) {
-      updateWarmupStep("docker", "done", "Browser preview cannot inspect Docker");
-      updateWarmupStep("agentImage", "done", "Browser preview cannot manage the agent image");
+      updateWarmupStep("docker", "done", "Preview mode");
+      updateWarmupStep("agentImage", "done", "Preview mode");
       updateWarmupStep("api", "active", "Waiting for API");
       await waitForApiReady();
       updateWarmupStep("api", "done", "API is reachable");
@@ -666,13 +581,13 @@ export default function App() {
     }
     updateWarmupStep("docker", "done", "Docker is reachable");
 
-    updateWarmupStep("agentImage", "active", "Checking first-run sandbox image");
+    updateWarmupStep("agentImage", "active", "Checking image");
     if (nextRuntime.agentImage.state !== "running") {
-      updateWarmupStep("agentImage", "active", "Building first-run sandbox image. Docker can take a few minutes.");
+      updateWarmupStep("agentImage", "active", "Building image. This can take a few minutes.");
       await startLocalService("agentImage");
       nextRuntime = await waitForRuntime((runtimeStatus) => runtimeStatus.agentImage.state === "running", 120_000);
     }
-    updateWarmupStep("agentImage", "done", "Agent image is available");
+    updateWarmupStep("agentImage", "done", "Image ready");
 
     updateWarmupStep("api", "active", "Starting API if needed");
     if (nextRuntime.api.state !== "running") {
@@ -688,14 +603,16 @@ export default function App() {
     try {
       setApiError(null);
       await prepareRuntimeForCreate();
-      updateWarmupStep("session", "active", "Booting sandbox");
+      updateWarmupStep("session", "active", "Starting session");
       setCreateFlow((current) => ({
         ...current,
         state: "creating",
-        title: "Creating session",
-        detail: "Requesting a new sandbox session from the local API.",
+        title: "Starting session",
+        detail: "Creating container.",
       }));
-      const session = await ottobotApi.createSession(prompt.trim() || "Help me build a web application.");
+      const initialPrompt = prompt.trim() || "Start a new session.";
+      const session = await ottobotApi.createSession(initialPrompt);
+      setPendingInitialPrompt({ sessionId: session.session_id, prompt: initialPrompt });
       setSelectedSessionId(session.session_id);
       setCurrentRoute("sessions");
       await refreshApi();
@@ -703,10 +620,10 @@ export default function App() {
         ...current,
         state: "creating",
         title: "Session starting",
-        detail: "The API accepted the session. Docker startup is continuing in the background.",
+        detail: "Container starting.",
         steps: current.steps.map((step) =>
           step.id === "session"
-            ? { ...step, status: "active", detail: "Session accepted; sandbox is starting" }
+            ? { ...step, status: "active", detail: "Container starting" }
             : step,
         ),
       }));
@@ -730,24 +647,13 @@ export default function App() {
     try {
       await ottobotApi.deleteSession(selectedSession.session_id);
       setSelectedSessionId(null);
+      setPendingInitialPrompt(null);
       await refreshApi();
     } catch (error) {
       setApiError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusyAction(null);
     }
-  }
-
-  function sendMessage() {
-    if (!draft.trim() || socketRef.current?.readyState !== WebSocket.OPEN) return;
-    socketRef.current.send(
-      JSON.stringify({
-        type: "user_prompt",
-        content: draft.trim(),
-        timestamp: Date.now(),
-      }),
-    );
-    setDraft("");
   }
 
   const sessionSidebar = (
@@ -759,7 +665,7 @@ export default function App() {
             data-sidebar-collapsed="hide"
             className="mx-2 rounded-lg border border-dashed border-sidebar-border p-3 text-xs leading-5 text-sidebar-foreground/65"
           >
-            No sessions yet. Start from a prompt and the session will appear here while it warms.
+            No sessions yet.
           </div>
         ) : (
           <SidebarMenu className="gap-1">
@@ -772,13 +678,13 @@ export default function App() {
                     setSelectedSessionId(session.session_id);
                     setCurrentRoute("sessions");
                   }}
-                  tooltip={session.initial_prompt || "Coding session"}
+                  tooltip={session.initial_prompt || "Session"}
                   className="h-auto min-h-14 items-start gap-2 px-2 py-2"
                 >
                   <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
                   <span className="grid min-w-0 flex-1 gap-1">
                     <span className="truncate text-[0.9rem] leading-5">
-                      {session.initial_prompt || "Coding session"}
+                      {session.initial_prompt || "Session"}
                     </span>
                     <span className="flex min-w-0 items-center justify-between gap-2">
                       <span className="min-w-0 truncate text-[0.7rem] text-sidebar-foreground/55">
@@ -851,24 +757,36 @@ export default function App() {
             <header
               className={cn(
                 deskHeaderClass,
-                "grid h-[var(--chrome-header-height)] select-none grid-cols-[minmax(11rem,1fr)_minmax(18rem,34rem)_minmax(11rem,1fr)] items-center gap-3 px-3",
+                "grid h-[var(--chrome-header-height)] select-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3",
               )}
               data-tauri-drag-region=""
               onMouseDown={handleChromeMouseDown}
             >
               <div className="flex min-w-0 items-center gap-2">
                 <SidebarTrigger className={deskIconControlPillClass} data-tauri-drag-region="false" />
-                <div className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
-                  <Zap className="h-3.5 w-3.5" />
-                  <span>Local coding agent</span>
-                </div>
               </div>
-              <div className="min-w-0 px-2">
-                <TopDeskTabs items={navItems} activeId={currentRoute} onSelect={setCurrentRoute} className="w-full" />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button size="icon" variant="ghost" className={deskIconControlPillClass} data-tauri-drag-region="false" onClick={() => void refreshAll()}>
+              <div className="min-w-0" />
+              <div className="flex justify-end gap-2" data-tauri-drag-region="false">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className={deskIconControlPillClass}
+                  aria-label="Refresh"
+                  title="Refresh"
+                  onClick={() => void refreshAll()}
+                >
                   <RefreshCw />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className={deskIconControlPillClass}
+                  aria-label="Settings"
+                  title="Settings"
+                  data-active={currentRoute === "settings"}
+                  onClick={() => setCurrentRoute("settings")}
+                >
+                  <Settings />
                 </Button>
               </div>
             </header>
@@ -888,7 +806,9 @@ export default function App() {
                     health={health}
                     metrics={metrics}
                     runtimeSettings={runtimeSettings}
+                    providerConfig={providerConfig}
                     saveSettings={updateRuntimeSettings}
+                    saveProviderConfig={updateProviderConfig}
                     refreshSettings={refreshSettings}
                     runServiceAction={runServiceAction}
                     busyAction={busyAction}
@@ -905,16 +825,19 @@ export default function App() {
                     busyCreate={busyAction === "create-session"}
                     createFlow={createFlow}
                     session={selectedSession}
-                    messages={messages}
-                    socketState={socketState}
+                    pendingInitialPrompt={pendingInitialPrompt}
+                    clearPendingInitialPrompt={(sessionId) => {
+                      setPendingInitialPrompt((current) =>
+                        current?.sessionId === sessionId ? null : current,
+                      );
+                    }}
+                    chatStatus={chatStatus}
+                    onChatStatusChange={setChatStatus}
                     sessionLogs={sessionLogs}
                     logsError={logsError}
                     logsLoading={logsLoading}
                     logsUpdatedAt={logsUpdatedAt}
                     refreshLogs={() => void refreshSessionLogs(true)}
-                    draft={draft}
-                    setDraft={setDraft}
-                    sendMessage={sendMessage}
                     deleteSession={deleteSelectedSession}
                     busyDelete={busyAction === "delete-session"}
                   />
@@ -939,16 +862,15 @@ function SessionsWorkspace({
   busyCreate,
   createFlow,
   session,
-  messages,
-  socketState,
+  pendingInitialPrompt,
+  clearPendingInitialPrompt,
+  chatStatus,
+  onChatStatusChange,
   sessionLogs,
   logsError,
   logsLoading,
   logsUpdatedAt,
   refreshLogs,
-  draft,
-  setDraft,
-  sendMessage,
   deleteSession,
   busyDelete,
 }: {
@@ -961,16 +883,15 @@ function SessionsWorkspace({
   busyCreate: boolean;
   createFlow: CreateFlow;
   session: SessionSummary | null;
-  messages: ChatMessage[];
-  socketState: SocketState;
+  pendingInitialPrompt: PendingInitialPrompt | null;
+  clearPendingInitialPrompt: (sessionId: string) => void;
+  chatStatus: ChatStatus;
+  onChatStatusChange: (status: ChatStatus) => void;
   sessionLogs: SessionLogEntry[];
   logsError: string | null;
   logsLoading: boolean;
   logsUpdatedAt: number | null;
   refreshLogs: () => void;
-  draft: string;
-  setDraft: (value: string) => void;
-  sendMessage: () => void;
   deleteSession: () => void;
   busyDelete: boolean;
 }) {
@@ -994,16 +915,15 @@ function SessionsWorkspace({
       <div className="min-h-0 min-w-0 overflow-y-auto">
         <SessionChatView
           session={session}
-          messages={messages}
-          socketState={socketState}
-          draft={draft}
-          setDraft={setDraft}
-          sendMessage={sendMessage}
+          pendingInitialPrompt={pendingInitialPrompt}
+          clearPendingInitialPrompt={clearPendingInitialPrompt}
+          onChatStatusChange={onChatStatusChange}
+          refreshLogs={refreshLogs}
         />
       </div>
       <SessionArtifactView
         session={session}
-        socketState={socketState}
+        chatStatus={chatStatus}
         logs={sessionLogs}
         logsError={logsError}
         logsLoading={logsLoading}
@@ -1050,77 +970,65 @@ function NewSessionView({
 
   return (
     <div className="flex h-full min-h-[36rem] items-center justify-center overflow-y-auto px-4 py-10">
-      <div className="grid w-full max-w-5xl gap-6">
-        <div className="mx-auto grid max-w-3xl justify-items-center gap-4 text-center">
-          <div className="grid h-16 w-16 place-items-center rounded-[1.35rem] border border-primary/20 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <Bot className="h-8 w-8" />
+      <div className="grid w-full max-w-4xl gap-5">
+        <div className="mx-auto grid max-w-2xl justify-items-center gap-2 text-center">
+          <div className="grid h-12 w-12 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <Bot className="h-6 w-6" />
           </div>
-          <div className="grid gap-2">
-            <h1 className="text-4xl font-semibold leading-tight tracking-normal md:text-5xl">
-              Get started with OttoBot
-            </h1>
-            <p className="text-base text-muted-foreground md:text-lg">
-              What should your local coding agent build?
-            </p>
-          </div>
+          <h1 className="text-3xl font-semibold leading-tight tracking-normal md:text-4xl">
+            New session
+          </h1>
+          <p className="text-sm text-muted-foreground md:text-base">
+            Describe the change.
+          </p>
         </div>
 
-        <div className="mx-auto grid w-full max-w-4xl gap-3">
-          <form
+        <div className="mx-auto grid w-full gap-3">
+          <PromptInput
             className="rounded-[1.6rem] border border-border bg-background/35 p-2 shadow-[0_18px_44px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.06)]"
-            onSubmit={(event) => {
-              event.preventDefault();
+            onSubmit={(message) => {
+              const nextPrompt = message.text.trim();
+              if (nextPrompt) setPrompt(nextPrompt);
               if (!busy) void createSession();
             }}
           >
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground">
-                <Plus className="h-5 w-5" />
+            <PromptInputBody>
+              <div className="flex min-w-0 items-start gap-2">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground">
+                  <Plus className="h-5 w-5" />
+                </div>
+                <PromptInputTextarea
+                  id="new-session-prompt"
+                  value={prompt}
+                  disabled={busy}
+                  onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setPrompt(event.target.value)}
+                  placeholder="Describe a task..."
+                  className="min-h-12 flex-1 border-0 bg-transparent px-0 py-2 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent md:text-lg"
+                />
               </div>
-              <Input
-                id="new-session-prompt"
-                value={prompt}
-                disabled={busy}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                    event.preventDefault();
-                    if (!busy) void createSession();
-                  }
-                }}
-                placeholder="Describe the app, bug, or change..."
-                className="h-12 flex-1 border-0 bg-transparent px-0 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent md:text-lg"
-              />
-              <StatusPill tone={toneForService(runtime?.api)}>
-                {formatStatusText(runtime?.api.state ?? health?.status)}
-              </StatusPill>
-              <Button
-                type="submit"
-                size="icon-lg"
-                aria-label="Start session"
-                disabled={busy}
+            </PromptInputBody>
+            <PromptInputFooter className="mt-1 justify-end px-1 pb-1">
+              <PromptInputSubmit
+                status={busy ? "submitted" : "ready"}
+                disabled={busy || !prompt.trim()}
                 className="h-11 w-11 rounded-full"
               >
                 {busy ? <Loader2 className="animate-spin" /> : <Send />}
-              </Button>
-            </div>
-          </form>
+              </PromptInputSubmit>
+            </PromptInputFooter>
+          </PromptInput>
 
-          <div className="flex flex-wrap justify-center gap-2">
+          <Suggestions className="justify-center">
             {GET_STARTED_PROMPTS.map((suggestion) => (
-              <Button
+              <Suggestion
                 key={suggestion}
-                type="button"
-                variant="outline"
-                size="sm"
+                suggestion={suggestion}
                 disabled={busy}
                 className="rounded-full bg-background/25 px-3 text-muted-foreground hover:text-foreground"
-                onClick={() => setPrompt(suggestion)}
-              >
-                {suggestion}
-              </Button>
+                onClick={setPrompt}
+              />
             ))}
-          </div>
+          </Suggestions>
         </div>
 
         {showWarmup ? (
@@ -1198,6 +1106,30 @@ const BROWSER_RUNTIME_SETTINGS_PREVIEW: RuntimeSettings = {
   updatedAtMs: 0,
 };
 
+const BROWSER_PROVIDER_CONFIG_PREVIEW: ProviderConfig = {
+  activeProvider: "openai",
+  activeModel: DEFAULT_PROVIDER_MODELS.openai,
+  codexCliPath: "",
+  codexCliCwd: "",
+  codexOauth: {
+    enabled: true,
+    model: DEFAULT_PROVIDER_MODELS["codex-cli"],
+    reasoningEffort: "medium",
+    approvalMode: "never",
+    sandboxMode: "read-only",
+  },
+  kimiCoding: {
+    enabled: false,
+    providerPackage: "@ai-sdk/openai-compatible",
+    baseUrl: "https://api.kimi.com/coding/v1",
+    model: "kimi-for-coding",
+    authMode: "api-key",
+    status: "planned",
+    notes: [],
+  },
+  updatedAtMs: 0,
+};
+
 function resolveSettingsAgentImage(settings: RuntimeSettings) {
   return settings.useDefaultAgentImage
     ? DEFAULT_AGENT_IMAGE
@@ -1209,7 +1141,9 @@ function SettingsView({
   health,
   metrics,
   runtimeSettings,
+  providerConfig,
   saveSettings,
+  saveProviderConfig,
   refreshSettings,
   runServiceAction,
   busyAction,
@@ -1219,21 +1153,29 @@ function SettingsView({
   health: HealthResponse | null;
   metrics: MetricsResponse | null;
   runtimeSettings: RuntimeSettings | null;
+  providerConfig: ProviderConfig | null;
   saveSettings: (settings: RuntimeSettings) => Promise<void>;
+  saveProviderConfig: (config: ProviderConfig) => Promise<void>;
   refreshSettings: () => Promise<void>;
   runServiceAction: (service: LocalServiceName, action: "start" | "stop") => Promise<void>;
   busyAction: string | null;
   isTauri: boolean;
 }) {
   const [draftSettings, setDraftSettings] = useState<RuntimeSettings | null>(runtimeSettings);
+  const [draftProviderConfig, setDraftProviderConfig] = useState<ProviderConfig | null>(providerConfig);
 
   useEffect(() => {
     setDraftSettings(runtimeSettings);
   }, [runtimeSettings]);
 
-  const effectiveSettings = draftSettings ?? (!isTauri ? BROWSER_RUNTIME_SETTINGS_PREVIEW : null);
+  useEffect(() => {
+    setDraftProviderConfig(providerConfig);
+  }, [providerConfig]);
 
-  if (!effectiveSettings) {
+  const effectiveSettings = draftSettings ?? (!isTauri ? BROWSER_RUNTIME_SETTINGS_PREVIEW : null);
+  const effectiveProviderConfig = draftProviderConfig ?? (!isTauri ? BROWSER_PROVIDER_CONFIG_PREVIEW : null);
+
+  if (!effectiveSettings || !effectiveProviderConfig) {
     return (
       <Card className={deskSolidSurfaceClass}>
         <CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
@@ -1246,9 +1188,20 @@ function SettingsView({
 
   const resolvedImage = resolveSettingsAgentImage(effectiveSettings);
   const saveBusy = busyAction === "save-runtime-settings";
+  const saveProviderBusy = busyAction === "save-provider-config";
   const imageBuildBusy = busyAction === "start-agentImage";
   const externalApiRunning = runtime?.api.state === "running" && !runtime.api.managed;
   const serviceCards = [runtime?.api, runtime?.docker, runtime?.agentImage].filter(Boolean) as ManagedServiceStatus[];
+  const apiProviderMismatch =
+    Boolean(health?.agent) &&
+    (health?.agent.provider !== effectiveProviderConfig.activeProvider ||
+      health?.agent.model !== effectiveProviderConfig.activeModel);
+  const providerDirty =
+    Boolean(providerConfig) &&
+    (providerConfig?.activeProvider !== effectiveProviderConfig.activeProvider ||
+      providerConfig?.activeModel !== effectiveProviderConfig.activeModel ||
+      providerConfig?.codexCliPath !== effectiveProviderConfig.codexCliPath ||
+      providerConfig?.codexCliCwd !== effectiveProviderConfig.codexCliCwd);
 
   const updateDraft = (patch: Partial<RuntimeSettings>) => {
     setDraftSettings((current) => ({
@@ -1265,6 +1218,20 @@ function SettingsView({
     });
   };
 
+  const updateProviderDraft = (patch: Partial<ProviderConfig>) => {
+    setDraftProviderConfig((current) => ({
+      ...(current ?? BROWSER_PROVIDER_CONFIG_PREVIEW),
+      ...patch,
+    }));
+  };
+
+  const selectProvider = (provider: LlmProvider) => {
+    updateProviderDraft({
+      activeProvider: provider,
+      activeModel: defaultModelForProvider(provider),
+    });
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="grid gap-4">
@@ -1273,10 +1240,10 @@ function SettingsView({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Settings2 className="h-5 w-5 text-primary" />
+                  <Settings className="h-5 w-5 text-primary" />
                   Settings
                 </CardTitle>
-                <CardDescription>Local runtime settings for the desktop-managed API and Docker sandbox image.</CardDescription>
+                <CardDescription>Runtime, provider, and image.</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -1284,10 +1251,119 @@ function SettingsView({
             <div className="grid gap-4 rounded-lg border border-border bg-background/25 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium">Docker Agent Image</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    This image is checked, built, and passed as AGENT_IMAGE when the desktop starts the API.
+                  <p className="font-medium">Provider</p>
+                </div>
+                <StatusPill tone="info">{labelForProvider(effectiveProviderConfig.activeProvider)}</StatusPill>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background/20 px-3 py-2 text-xs text-muted-foreground">
+                <span>Running API</span>
+                <StatusPill tone={apiProviderMismatch ? "warning" : "positive"}>
+                  {health?.agent ? `${labelForProvider(health.agent.provider)} · ${health.agent.model}` : "unknown"}
+                </StatusPill>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="grid gap-2">
+                  <Label htmlFor="llm-provider">Provider</Label>
+                  <Select
+                    value={effectiveProviderConfig.activeProvider}
+                    disabled={!isTauri}
+                    onValueChange={(value) => selectProvider(value as LlmProvider)}
+                  >
+                    <SelectTrigger id="llm-provider" className="w-full bg-background/45">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LLM_PROVIDER_OPTIONS.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {LLM_PROVIDER_OPTIONS.find((option) => option.id === effectiveProviderConfig.activeProvider)?.detail}
                   </p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="llm-model">Model</Label>
+                  <Input
+                    id="llm-model"
+                    value={effectiveProviderConfig.activeModel}
+                    disabled={!isTauri}
+                    onChange={(event) => updateProviderDraft({ activeModel: event.target.value })}
+                    placeholder={defaultModelForProvider(effectiveProviderConfig.activeProvider)}
+                    className="bg-background/45"
+                  />
+                </div>
+              </div>
+
+              {effectiveProviderConfig.activeProvider === "codex-cli" ? (
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="grid gap-2">
+                    <Label htmlFor="codex-cli-path">Codex path</Label>
+                    <Input
+                      id="codex-cli-path"
+                      value={effectiveProviderConfig.codexCliPath}
+                      disabled={!isTauri}
+                      onChange={(event) => updateProviderDraft({ codexCliPath: event.target.value })}
+                      placeholder="codex"
+                      className="bg-background/45"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="codex-cli-cwd">Codex cwd</Label>
+                    <Input
+                      id="codex-cli-cwd"
+                      value={effectiveProviderConfig.codexCliCwd}
+                      disabled={!isTauri}
+                      onChange={(event) => updateProviderDraft({ codexCliCwd: event.target.value })}
+                      placeholder="Repo root"
+                      className="bg-background/45"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {externalApiRunning ? (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>External API detected. Provider state may differ.</span>
+                </div>
+              ) : null}
+
+              {runtime?.api.state === "running" && !externalApiRunning && providerDirty ? (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Restart API for new sessions to use this provider.</span>
+                </div>
+              ) : null}
+
+              {!providerDirty && apiProviderMismatch ? (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>Running API uses a different provider.</span>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Last saved: {effectiveProviderConfig.updatedAtMs ? formatTime(effectiveProviderConfig.updatedAtMs) : "not saved"}
+                </p>
+                <Button
+                  disabled={!isTauri || saveProviderBusy}
+                  onClick={() => void saveProviderConfig(effectiveProviderConfig)}
+                >
+                  {saveProviderBusy ? <Loader2 className="animate-spin" /> : <Save />}
+                  Save provider
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 rounded-lg border border-border bg-background/25 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">Image</p>
                 </div>
                 <StatusPill tone={toneForService(runtime?.agentImage)}>{runtime?.agentImage.state ?? "unknown"}</StatusPill>
               </div>
@@ -1326,7 +1402,7 @@ function SettingsView({
               {externalApiRunning ? (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
                   <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>The API is reachable but was not started by this desktop window, so this UI cannot guarantee which AGENT_IMAGE it is using.</span>
+                  <span>External API detected. Image state may differ.</span>
                 </div>
               ) : null}
 
@@ -1352,7 +1428,6 @@ function SettingsView({
         <Card className={deskSolidSurfaceClass}>
           <CardHeader>
             <CardTitle>Runtime</CardTitle>
-            <CardDescription>Docker stays external. The desktop can supervise the local API when launched from here.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-3">
@@ -1398,31 +1473,169 @@ function SettingsView({
   );
 }
 
+function isToolMessagePart(part: UIMessage["parts"][number]): part is ToolPart {
+  return part.type === "dynamic-tool" || part.type.startsWith("tool-");
+}
+
+function hasVisibleMessageParts(message: UIMessage): boolean {
+  return Array.isArray(message.parts) && message.parts.length > 0;
+}
+
+function formatChatError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (raw.includes("Message must contain at least one part") || raw.includes("\"too_small\"")) {
+    return "A previous empty assistant response was removed. Try sending the message again.";
+  }
+
+  const jsonStart = raw.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(raw.slice(jsonStart)) as { message?: unknown };
+      if (typeof parsed.message === "string" && parsed.message.length > 0) {
+        return parsed.message;
+      }
+    } catch {
+      // Fall through to the original error string.
+    }
+  }
+
+  return raw;
+}
+
+function renderMessagePart(part: UIMessage["parts"][number], key: string) {
+  if (part.type === "text") {
+    return <MessageResponse key={key}>{part.text}</MessageResponse>;
+  }
+
+  if (part.type === "reasoning") {
+    return (
+      <Reasoning key={key} isStreaming={part.state === "streaming"}>
+        <ReasoningTrigger />
+        <ReasoningContent>{part.text}</ReasoningContent>
+      </Reasoning>
+    );
+  }
+
+  if (isToolMessagePart(part)) {
+    const errorText = "errorText" in part ? part.errorText : undefined;
+    const output = "output" in part ? part.output : undefined;
+
+    const header = part.type === "dynamic-tool" ? (
+      <ToolHeader type="dynamic-tool" state={part.state} title={part.title} toolName={part.toolName} />
+    ) : (
+      <ToolHeader type={part.type} state={part.state} title={part.title} />
+    );
+
+    return (
+      <Tool key={key} defaultOpen={part.state !== "output-available"}>
+        {header}
+        <ToolContent>
+          <ToolInput input={part.input} />
+          <ToolOutput output={output} errorText={errorText} />
+        </ToolContent>
+      </Tool>
+    );
+  }
+
+  if (part.type === "file") {
+    return (
+      <a key={key} href={part.url} target="_blank" rel="noreferrer" className="text-sm text-primary underline-offset-4 hover:underline">
+        {part.filename ?? part.mediaType}
+      </a>
+    );
+  }
+
+  return null;
+}
+
 function SessionChatView({
   session,
-  messages,
-  socketState,
-  draft,
-  setDraft,
-  sendMessage,
+  pendingInitialPrompt,
+  clearPendingInitialPrompt,
+  onChatStatusChange,
+  refreshLogs,
 }: {
   session: SessionSummary;
-  messages: ChatMessage[];
-  socketState: SocketState;
-  draft: string;
-  setDraft: (value: string) => void;
-  sendMessage: () => void;
+  pendingInitialPrompt: PendingInitialPrompt | null;
+  clearPendingInitialPrompt: (sessionId: string) => void;
+  onChatStatusChange: (status: ChatStatus) => void;
+  refreshLogs: () => void;
 }) {
   const ready = session.status === "ready" || session.status === "running";
+  const [input, setInput] = useState("");
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const autoSubmittedRef = useRef<string | null>(null);
+  const transport = useMemo(
+    () => new DefaultChatTransport<UIMessage>({ api: ottobotApi.chatEndpoint(session.session_id) }),
+    [session.session_id],
+  );
+  const { messages, setMessages, sendMessage, status, stop, error } = useChat<UIMessage>({
+    id: session.session_id,
+    transport,
+    onFinish: () => refreshLogs(),
+    onError: (chatError) => setLoadError(formatChatError(chatError)),
+  });
+  const visibleMessages = useMemo(() => messages.filter(hasVisibleMessageParts), [messages]);
+
+  useEffect(() => {
+    onChatStatusChange(status);
+  }, [onChatStatusChange, status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMessagesLoaded(false);
+    setLoadError(null);
+    setMessages([]);
+
+    ottobotApi.getSessionMessages(session.session_id)
+      .then((response) => {
+        if (!cancelled) setMessages(response.messages.filter(hasVisibleMessageParts));
+      })
+      .catch((messageError: unknown) => {
+        if (!cancelled) setLoadError(formatChatError(messageError));
+      })
+      .finally(() => {
+        if (!cancelled) setMessagesLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.session_id, setMessages]);
+
+  useEffect(() => {
+    if (!ready || !messagesLoaded || visibleMessages.length > 0 || status !== "ready") return;
+    if (pendingInitialPrompt?.sessionId !== session.session_id) return;
+    if (autoSubmittedRef.current === session.session_id) return;
+
+    autoSubmittedRef.current = session.session_id;
+    clearPendingInitialPrompt(session.session_id);
+    void sendMessage({ text: pendingInitialPrompt.prompt }).catch((submitError: unknown) => {
+      autoSubmittedRef.current = null;
+      setLoadError(formatChatError(submitError));
+    });
+  }, [
+    clearPendingInitialPrompt,
+    messagesLoaded,
+    pendingInitialPrompt,
+    ready,
+    sendMessage,
+    session.session_id,
+    status,
+    visibleMessages.length,
+  ]);
+
+  const canSubmit = ready && status === "ready" && input.trim().length > 0;
 
   return (
     <Card className={cn(deskSolidSurfaceClass, "flex h-full min-h-[32rem] flex-col overflow-hidden")}>
       <CardHeader className="shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle className="truncate">{session.initial_prompt || "Coding session"}</CardTitle>
+            <CardTitle className="truncate">{session.initial_prompt || "Session"}</CardTitle>
             <CardDescription>
-              {session.session_id} · {socketState} · {formatTime(session.created_at)}
+              {formatTime(session.created_at)} · {status}
             </CardDescription>
           </div>
           <StatusPill tone={statusTone(session.status) as Tone}>{session.status}</StatusPill>
@@ -1432,48 +1645,75 @@ function SessionChatView({
         {!ready ? (
           <div className="flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Warming sandbox, VNC, MCP tools, and agent runtime.</span>
+            <span>Starting session.</span>
           </div>
         ) : null}
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border border-border bg-background/20 p-3">
-          <div className={cn("max-w-[84%] rounded-lg border p-3 text-sm", messageClass("user"))}>
-            <p className="mb-1 text-xs font-medium text-sky-200">Initial prompt</p>
-            <p className="whitespace-pre-wrap">{session.initial_prompt}</p>
+        {loadError || error ? (
+          <div className="rounded-lg border border-rose-400/25 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
+            {loadError ?? formatChatError(error)}
           </div>
-          {messages.length === 0 ? (
-            <div className="grid place-items-center py-12 text-sm text-muted-foreground">
-              {ready ? "Waiting for agent messages." : "Session is not ready yet."}
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div key={message.id} className={cn("max-w-[84%] rounded-lg border p-3 text-sm", messageClass(message.role))}>
-                <div className="mb-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                  <span>{message.label}</span>
-                  <span>{formatTime(message.timestamp)}</span>
-                </div>
-                <p className="whitespace-pre-wrap leading-6">{message.content}</p>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="flex gap-2">
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                event.preventDefault();
-                sendMessage();
-              }
-            }}
-            disabled={!ready || socketState !== "connected"}
-            placeholder="Message OttoBot..."
-            className="min-h-16 flex-1 resize-none rounded-lg border border-input bg-background/50 px-3 py-2 text-sm outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-          />
-          <Button size="icon-lg" disabled={!draft.trim() || !ready || socketState !== "connected"} onClick={sendMessage}>
-            <Send />
-          </Button>
-        </div>
+        ) : null}
+        <Conversation className="min-h-0 flex-1 rounded-lg border border-border bg-background/20">
+          <ConversationContent className="gap-5 p-4">
+            {!messagesLoaded ? (
+              <ConversationEmptyState
+                icon={<Loader2 className="h-5 w-5 animate-spin" />}
+                title="Loading messages"
+                description="Restoring conversation."
+              />
+            ) : visibleMessages.length === 0 ? (
+              <ConversationEmptyState
+                icon={<MessageSquare className="h-5 w-5" />}
+                title={ready ? "Ready" : "Starting"}
+                description={ready ? "Send a prompt." : "Waiting for the session."}
+              />
+            ) : (
+              visibleMessages.map((message) => (
+                <Message key={message.id} from={message.role}>
+                  <MessageContent
+                    className={cn(
+                      message.role === "user"
+                        ? "border border-sky-400/20 bg-sky-400/10"
+                        : "w-full",
+                    )}
+                  >
+                    {message.parts.map((part, index) => renderMessagePart(part, `${message.id}-${index}`))}
+                  </MessageContent>
+                </Message>
+              ))
+            )}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+        <PromptInput
+          className="rounded-lg border border-input bg-background/50"
+          onSubmit={async (message) => {
+            const text = message.text.trim();
+            if (!text || !ready || status !== "ready") return;
+            await sendMessage({ text, files: message.files });
+            setInput("");
+          }}
+        >
+          <PromptInputBody>
+            <PromptInputTextarea
+              value={input}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value)}
+              disabled={!ready || status === "submitted" || status === "streaming"}
+              placeholder="Message OttoBot..."
+              className="min-h-16 border-0 bg-transparent"
+            />
+          </PromptInputBody>
+          <PromptInputFooter className="px-2 pb-2">
+            <PromptInputTools>
+              <StatusPill tone={chatStatusTone(status)}>{status}</StatusPill>
+            </PromptInputTools>
+            <PromptInputSubmit
+              status={status}
+              onStop={stop}
+              disabled={!canSubmit && status !== "submitted" && status !== "streaming"}
+            />
+          </PromptInputFooter>
+        </PromptInput>
       </CardContent>
     </Card>
   );
@@ -1481,7 +1721,7 @@ function SessionChatView({
 
 function SessionArtifactView({
   session,
-  socketState,
+  chatStatus,
   logs,
   logsError,
   logsLoading,
@@ -1491,7 +1731,7 @@ function SessionArtifactView({
   busyDelete,
 }: {
   session: SessionSummary | null;
-  socketState: SocketState;
+  chatStatus: ChatStatus;
   logs: SessionLogEntry[];
   logsError: string | null;
   logsLoading: boolean;
@@ -1508,9 +1748,9 @@ function SessionArtifactView({
             <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
               <Monitor className="h-5 w-5" />
             </div>
-            <CardTitle>Desktop appears with a session</CardTitle>
+            <CardTitle>Desktop</CardTitle>
             <CardDescription className="mt-2">
-              Create or select a session to inspect the sandbox desktop. Until then, use the prompt to ask OttoBot what to build.
+              Select a session to view it.
             </CardDescription>
           </div>
         </CardContent>
@@ -1527,7 +1767,7 @@ function SessionArtifactView({
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <CardTitle>Desktop</CardTitle>
-            <CardDescription>{ready ? `Live sandbox · ${socketState}` : "Waiting for sandbox"}</CardDescription>
+            <CardDescription>{ready ? `Live · ${chatStatus}` : "Waiting"}</CardDescription>
           </div>
           <Button size="sm" variant="outline" disabled={!ready} asChild>
             <a href={vncUrl} target="_blank" rel="noreferrer">
@@ -1551,14 +1791,14 @@ function SessionArtifactView({
           <div className="grid min-h-[18rem] flex-1 place-items-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
             <div className="text-center">
               <Monitor className="mx-auto mb-2 h-6 w-6" />
-              Waiting for VNC.
+              Waiting for desktop.
             </div>
           </div>
         )}
         <SessionDiagnosticsPanel
           session={session}
           ready={ready}
-          socketState={socketState}
+          chatStatus={chatStatus}
           vncUrl={vncUrl}
           logs={logs}
           logsError={logsError}
@@ -1586,7 +1826,7 @@ function SessionArtifactView({
 function SessionDiagnosticsPanel({
   session,
   ready,
-  socketState,
+  chatStatus,
   vncUrl,
   logs,
   logsError,
@@ -1596,7 +1836,7 @@ function SessionDiagnosticsPanel({
 }: {
   session: SessionSummary;
   ready: boolean;
-  socketState: SocketState;
+  chatStatus: ChatStatus;
   vncUrl: string;
   logs: SessionLogEntry[];
   logsError: string | null;
@@ -1614,11 +1854,11 @@ function SessionDiagnosticsPanel({
           <StatusPill tone={statusTone(session.status) as Tone}>{session.status}</StatusPill>
         </div>
         <div className="grid gap-1">
-          <span className="text-muted-foreground">Socket</span>
-          <StatusPill tone={socketStateTone(socketState)}>{socketState}</StatusPill>
+          <span className="text-muted-foreground">Chat</span>
+          <StatusPill tone={chatStatusTone(chatStatus)}>{chatStatus}</StatusPill>
         </div>
         <div className="grid min-w-0 gap-1">
-          <span className="text-muted-foreground">VNC</span>
+          <span className="text-muted-foreground">Desktop</span>
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
               {session.vnc_url || "not allocated"}

@@ -2,7 +2,6 @@ import Docker from "dockerode";
 import { CONFIG } from "@/shared/config";
 import { createDockerClient } from "@/shared/docker-client";
 import { createLogger } from "@/shared/logger";
-// Removed unused ContainerConfig import
 
 const logger = createLogger("container-manager");
 

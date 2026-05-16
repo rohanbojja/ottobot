@@ -1,5 +1,7 @@
 const env = process.env;
 
+export type LlmProvider = "openai" | "anthropic" | "google" | "codex-cli";
+
 const DEFAULT_CORS_ORIGINS = [
   "http://localhost:1420",
   "http://127.0.0.1:1420",
@@ -21,6 +23,20 @@ function parseCsvList(value: string | undefined, fallback: string[]): string[] {
   return entries.length > 0 ? entries : fallback;
 }
 
+function parseLlmProvider(value: string | undefined): LlmProvider {
+  if (value === "anthropic" || value === "google" || value === "openai" || value === "codex-cli") {
+    return value;
+  }
+
+  if (value === "codex") {
+    return "codex-cli";
+  }
+
+  return "openai";
+}
+
+const llmProvider = parseLlmProvider(env["LLM_PROVIDER"]);
+
 export const CONFIG = {
   // API Configuration
   api: {
@@ -37,10 +53,14 @@ export const CONFIG = {
 
   // Agent Configuration
   agent: {
+    provider: llmProvider,
     geminiApiKey: env["GEMINI_API_KEY"] || "",
     openaiApiKey: env["OPENAI_API_KEY"] || "",
     anthropicApiKey: env["ANTHROPIC_API_KEY"] || "",
-    model: env["LLM_MODEL"] || "gemini-1.5-flash",
+    model: env["LLM_MODEL"] || (llmProvider === "codex-cli" ? "gpt-5.5" : "gpt-4.1-nano"),
+    codexCliPath: env["CODEX_CLI_PATH"] || "",
+    codexCliCwd: env["CODEX_CLI_CWD"] || "",
+    maxSteps: parseInt(env["AI_AGENT_MAX_STEPS"] || "20", 10),
     contextWindowSize: parseInt(
       env["CONTEXT_WINDOW_SIZE"] || "100000",
       10,

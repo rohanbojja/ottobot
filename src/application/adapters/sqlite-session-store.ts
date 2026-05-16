@@ -1,6 +1,7 @@
 import type { SessionStorePort } from "@/application/ports";
 import { SessionManager } from "@/shared/session-manager";
-import type { ChatMessage, Session, SessionStatus } from "@/shared/types";
+import type { UIMessage } from "ai";
+import type { Session, SessionStatus } from "@/shared/types";
 
 export class SqliteSessionStore implements SessionStorePort {
   getSession(sessionId: string): Promise<Session | null> {
@@ -24,8 +25,12 @@ export class SqliteSessionStore implements SessionStorePort {
     return SessionManager.addSessionLog(sessionId, level, message, metadata);
   }
 
-  addSessionMessage(sessionId: string, message: ChatMessage): Promise<void> {
-    return SessionManager.addSessionMessage(sessionId, message);
+  upsertSessionUIMessages(sessionId: string, messages: UIMessage[]): Promise<void> {
+    return SessionManager.upsertSessionUIMessages(sessionId, messages);
+  }
+
+  getSessionUIMessages(sessionId: string): Promise<UIMessage[]> {
+    return SessionManager.getSessionUIMessages(sessionId);
   }
 
   async deleteSession(sessionId: string): Promise<void> {

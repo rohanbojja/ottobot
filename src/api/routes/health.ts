@@ -2,6 +2,7 @@ import { Elysia } from 'elysia';
 import { HealthResponseSchema, MetricsResponseSchema } from '@/shared/schemas/health';
 import { SessionManager } from '@/shared/session-manager';
 import { createLogger } from '@/shared/logger';
+import { CONFIG } from '@/shared/config';
 import type { HealthStatus } from '@/shared/types';
 import { createDockerClient } from '@/shared/docker-client';
 
@@ -40,6 +41,10 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
           registry: registryHealthy,
           sessions: activeSessions.length,
         },
+        agent: {
+          provider: CONFIG.agent.provider,
+          model: CONFIG.agent.model,
+        },
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -52,6 +57,10 @@ export const healthRoutes = new Elysia({ prefix: '/health' })
           docker: false,
           registry: false,
           sessions: 0,
+        },
+        agent: {
+          provider: CONFIG.agent.provider,
+          model: CONFIG.agent.model,
         },
         timestamp: new Date().toISOString(),
       };

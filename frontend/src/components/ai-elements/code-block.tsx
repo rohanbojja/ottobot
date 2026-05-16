@@ -109,7 +109,7 @@ const LineSpan = ({
 
 // Types
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
-  code: string;
+  code?: string | null;
   language: BundledLanguage;
   showLineNumbers?: boolean;
 };
@@ -146,6 +146,8 @@ const getTokensCacheKey = (code: string, language: BundledLanguage) => {
   const end = code.length > 100 ? code.slice(-100) : "";
   return `${language}:${code.length}:${start}:${end}`;
 };
+
+const normalizeCode = (code: string | null | undefined): string => code ?? "";
 
 const getHighlighter = (
   language: BundledLanguage
@@ -372,14 +374,16 @@ export const CodeBlockActions = ({
 );
 
 export const CodeBlockContent = ({
-  code,
+  code: rawCode,
   language,
   showLineNumbers = false,
 }: {
-  code: string;
+  code?: string | null;
   language: BundledLanguage;
   showLineNumbers?: boolean;
 }) => {
+  const code = normalizeCode(rawCode);
+
   // Memoized raw tokens for immediate display
   const rawTokens = useMemo(() => createRawTokens(code), [code]);
 
@@ -426,13 +430,14 @@ export const CodeBlockContent = ({
 };
 
 export const CodeBlock = ({
-  code,
+  code: rawCode,
   language,
   showLineNumbers = false,
   className,
   children,
   ...props
 }: CodeBlockProps) => {
+  const code = normalizeCode(rawCode);
   const contextValue = useMemo(() => ({ code }), [code]);
 
   return (

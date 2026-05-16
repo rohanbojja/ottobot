@@ -5,11 +5,14 @@ environment-only concern.
 
 ## Current Pass
 
-- UI: the desktop `Providers` tab manages local provider preferences.
-- Auth: Codex OAuth is the only actionable setup path for now.
+- UI: the desktop Settings tab manages the active provider and model.
+- Auth: direct provider API keys stay in the process environment; Codex CLI uses
+  the local `codex login` state.
 - Storage: Tauri persists provider preferences in the app config directory as
   `provider-config.json`.
-- Runtime: the existing LangGraph agent still constructs its model directly.
+- Runtime: when the desktop starts the managed API process, it injects
+  `LLM_PROVIDER`, `LLM_MODEL`, and optional Codex CLI path/cwd values from
+  `provider-config.json`.
 
 ## Codex OAuth
 
@@ -27,6 +30,19 @@ codex login --device-auth
 
 This keeps ChatGPT OAuth tokens owned by the Codex CLI instead of storing them in
 OttoBot.
+
+To run the backend through the Codex CLI provider:
+
+```bash
+LLM_PROVIDER=codex-cli
+LLM_MODEL=gpt-5.5
+```
+
+`CODEX_CLI_PATH` can point at a specific Codex binary, and `CODEX_CLI_CWD` can
+override the host working directory used by the spawned `codex exec` process.
+OttoBot configures Codex CLI with `approvalMode=never`, `sandboxMode=read-only`,
+and the selected session's HTTP MCP server, so file and command actions still go
+through the disposable sandbox boundary.
 
 ## AI SDK Shape
 
@@ -66,16 +82,17 @@ For Moonshot platform API keys:
 }
 ```
 
-## Next Runtime Step
+## Runtime Direction
 
-When we replace the LangGraph model construction, add an `AgentModelProvider`
-registry that can resolve:
+The current runtime uses a direct provider selection path:
 
 ```text
-ProviderConfig -> AI SDK provider instance -> AgentRuntime
+Settings tab -> provider-config.json -> managed API env -> AI SDK provider instance -> ToolLoopAgent
 ```
 
-That keeps provider setup independent from the container, registry, and MCP contracts.
+Manual `bun run dev:api` runs still use shell environment values directly. That
+keeps provider setup independent from the container, registry, and MCP contracts
+while letting the desktop cockpit own the normal local runtime path.
 
 ## References
 

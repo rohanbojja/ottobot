@@ -33,8 +33,8 @@ export const SessionResponseSchema = t.Object({
   vnc_url: t.String({
     description: 'URL to access the VNC session'
   }),
-  chat_url: t.String({
-    description: 'WebSocket URL for chat communication'
+  chat_endpoint: t.String({
+    description: 'HTTP endpoint for AI SDK UI chat streaming'
   }),
   created_at: t.String({
     format: 'date-time'

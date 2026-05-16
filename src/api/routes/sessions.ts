@@ -9,6 +9,8 @@ import {
 import { SessionManager } from "@/shared/session-manager";
 import { createLogger } from "@/shared/logger";
 import { CONFIG } from "@/shared/config";
+import { sanitizeUIMessages } from "@/shared/ui-messages";
+import type { UIMessage } from "ai";
 import type { CreateSessionRequest, SessionResponse } from "@/shared/types";
 import { localSessionOrchestrator } from "@/application/local-session-runtime";
 
@@ -16,6 +18,22 @@ const logger = createLogger("session-routes");
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function chatEndpoint(sessionId: string): string {
+  return `http://localhost:${CONFIG.api.port}/session/${sessionId}/chat`;
+}
+
+function isUIMessageArray(value: unknown): value is UIMessage[] {
+  return Array.isArray(value) && value.every((message) => {
+    if (!message || typeof message !== "object") return false;
+    const candidate = message as Partial<UIMessage>;
+    return (
+      typeof candidate.id === "string" &&
+      (candidate.role === "system" || candidate.role === "user" || candidate.role === "assistant") &&
+      Array.isArray(candidate.parts)
+    );
+  });
 }
 
 export const sessionRoutes = new Elysia({ prefix: "/session" })
@@ -45,7 +63,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           vnc_url: session.vncPort
             ? `http://localhost:${session.vncPort}/vnc.html`
             : "",
-          chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
+          chat_endpoint: chatEndpoint(session.id),
           created_at: session.createdAt.toISOString(),
           expires_at: session.expiresAt.toISOString(),
           initial_prompt: session.initialPrompt,
@@ -162,7 +180,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           session_id: session.id,
           status: "initializing",
           vnc_url: `http://localhost:${vncPort}/vnc.html`,
-          chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
+          chat_endpoint: chatEndpoint(session.id),
           created_at: session.createdAt.toISOString(),
           expires_at: session.expiresAt.toISOString(),
           initial_prompt: initial_prompt,
@@ -216,7 +234,7 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
           vnc_url: session.vncPort
             ? `http://localhost:${session.vncPort}/vnc.html`
             : "",
-          chat_url: `ws://localhost:${CONFIG.api.port}/session/${session.id}/chat`,
+          chat_endpoint: chatEndpoint(session.id),
           created_at: session.createdAt.toISOString(),
           expires_at: session.expiresAt.toISOString(),
           initial_prompt: session.initialPrompt,
@@ -243,6 +261,127 @@ export const sessionRoutes = new Elysia({ prefix: "/session" })
         tags: ["sessions"],
         summary: "Get session status",
         description: "Retrieves the current status of a coding session",
+      },
+    },
+  )
+  .get(
+    "/:id/messages",
+    async ({ params, set }) => {
+      try {
+        const { id } = params;
+        const session = await SessionManager.getSession(id);
+
+        if (!session) {
+          set.status = 404;
+          return {
+            error: "Not Found",
+            message: "Session not found",
+          };
+        }
+
+        return {
+          session_id: id,
+          messages: await SessionManager.getSessionUIMessages(id),
+        };
+      } catch (error) {
+        logger.error("Error getting session UI messages:", error);
+        set.status = 500;
+        return {
+          error: "Internal Server Error",
+          message: "Failed to get session messages",
+        };
+      }
+    },
+    {
+      params: SessionIdParamSchema,
+      response: {
+        200: t.Object({
+          session_id: t.String(),
+          messages: t.Array(t.Any()),
+        }),
+        404: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+      detail: {
+        tags: ["sessions"],
+        summary: "Get persisted AI SDK UI messages",
+        description: "Returns UIMessage records for a session, with legacy chat rows converted when needed.",
+      },
+    },
+  )
+  .post(
+    "/:id/chat",
+    async ({ params, body, request, set }) => {
+      try {
+        const { id } = params;
+        const session = await SessionManager.getSession(id);
+
+        if (!session) {
+          set.status = 404;
+          return {
+            error: "Not Found",
+            message: "Session not found",
+          };
+        }
+
+        if (session.status !== "ready" && session.status !== "running") {
+          set.status = 409;
+          return {
+            error: "Conflict",
+            message: "Session is not ready for chat",
+          };
+        }
+
+        const messages = (body as { messages?: unknown }).messages;
+        if (!isUIMessageArray(messages)) {
+          set.status = 400;
+          return {
+            error: "Bad Request",
+            message: "Expected an AI SDK UI messages array",
+          };
+        }
+
+        const sanitizedMessages = sanitizeUIMessages(messages);
+        if (sanitizedMessages.length === 0) {
+          set.status = 400;
+          return {
+            error: "Bad Request",
+            message: "Expected at least one UI message with content",
+          };
+        }
+
+        return await localSessionOrchestrator.streamMessages(id, sanitizedMessages, request.signal);
+      } catch (error) {
+        logger.error("Error streaming session chat:", error);
+        set.status = 500;
+        return {
+          error: "Internal Server Error",
+          message: getErrorMessage(error),
+        };
+      }
+    },
+    {
+      params: SessionIdParamSchema,
+      body: t.Object(
+        {
+          id: t.Optional(t.String()),
+          messages: t.Array(t.Any()),
+          trigger: t.Optional(t.String()),
+          messageId: t.Optional(t.String()),
+        },
+        { additionalProperties: true },
+      ),
+      response: {
+        200: t.Any(),
+        400: ErrorResponseSchema,
+        404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
+        500: ErrorResponseSchema,
+      },
+      detail: {
+        tags: ["sessions"],
+        summary: "Stream AI SDK UI chat",
+        description: "Accepts AI SDK UI chat transport bodies and returns a UI message stream response.",
       },
     },
   )

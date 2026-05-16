@@ -17,6 +17,10 @@ export const HealthResponseSchema = t.Object({
       description: 'Number of active sessions'
     })
   }),
+  agent: t.Object({
+    provider: t.String(),
+    model: t.String(),
+  }),
   timestamp: t.String({
     format: 'date-time'
   })

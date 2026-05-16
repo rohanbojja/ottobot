@@ -11,9 +11,9 @@ ENV XVFB_RESOLUTION=1440x900x24
 # Install system dependencies and development tools
 RUN apt-get update && apt-get install -y \
     # Basic system tools
-    curl wget git zip unzip software-properties-common \
+    ca-certificates curl wget git zip unzip software-properties-common ripgrep \
     # X11 and VNC
-    xvfb x11vnc fluxbox xterm \
+    xvfb x11vnc fluxbox xterm wmctrl \
     # GUI automation tools
     xdotool imagemagick scrot \
     # Development tools

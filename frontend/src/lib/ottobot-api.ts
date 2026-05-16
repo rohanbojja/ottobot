@@ -1,3 +1,5 @@
+import type { UIMessage } from "ai";
+
 const API_BASE = import.meta.env.VITE_OTTOBOT_API_URL ?? "http://127.0.0.1:3000";
 
 export type SessionStatus =
@@ -12,7 +14,7 @@ export type SessionSummary = {
   session_id: string;
   status: SessionStatus;
   vnc_url: string;
-  chat_url: string;
+  chat_endpoint: string;
   created_at: string;
   expires_at: string;
   initial_prompt: string;
@@ -33,6 +35,10 @@ export type HealthResponse = {
     docker: boolean;
     registry: boolean;
     sessions: number;
+  };
+  agent: {
+    provider: string;
+    model: string;
   };
   timestamp: string;
 };
@@ -55,19 +61,9 @@ export type SessionLogsResponse = {
   logs: SessionLogEntry[];
 };
 
-export type ChatMessageWire = {
-  type:
-    | "user_prompt"
-    | "agent_response"
-    | "agent_thinking"
-    | "agent_action"
-    | "system_update"
-    | "download_ready"
-    | "error";
-  content?: string;
-  error?: string;
-  timestamp: number;
-  metadata?: Record<string, unknown>;
+export type SessionMessagesResponse = {
+  session_id: string;
+  messages: UIMessage[];
 };
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -103,6 +99,7 @@ export const ottobotApi = {
   metrics: () => apiFetch<MetricsResponse>("/health/metrics"),
   listSessions: () => apiFetch<ListSessionsResponse>("/session?limit=30"),
   getSession: (id: string) => apiFetch<SessionSummary>(`/session/${id}`),
+  getSessionMessages: (id: string) => apiFetch<SessionMessagesResponse>(`/session/${id}/messages`),
   getSessionLogs: (id: string, limit = 60) =>
     apiFetch<SessionLogsResponse>(`/session/${id}/logs?limit=${encodeURIComponent(String(limit))}`),
   createSession: (initialPrompt: string) =>
@@ -118,6 +115,7 @@ export const ottobotApi = {
       method: "DELETE",
     }),
   downloadUrl: (id: string) => `${API_BASE}/download/${id}`,
+  chatEndpoint: (id: string) => `${API_BASE}/session/${id}/chat`,
 };
 
 export function statusTone(status: SessionStatus | string) {

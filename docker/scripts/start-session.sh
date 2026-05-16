@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Mock Agent Startup Script
-echo "Starting Mock Agent with MCP Server..."
+echo "Starting OttoBot sandbox services..."
 
 # Set up display
 export DISPLAY=:1
@@ -73,27 +72,25 @@ MCP_PID=$!
 # Wait for MCP server to start
 sleep 3
 
-# Create a welcome file if workspace is empty
+# Create a welcome file if the mounted workspace is empty.
 if [ ! "$(ls -A /home/developer/workspace)" ]; then
     cat > /home/developer/workspace/README.md << 'EOF'
-# Welcome to Mock Agent Environment
+# OttoBot Sandbox Workspace
 
-This is a mock development environment with MCP server for testing.
+This disposable workspace is mounted into the OttoBot agent sandbox.
 
 ## Available Services
 - VNC: Virtual desktop access
-- MCP Server: Development tools API
+- MCP Server: sandbox file, shell, process, GUI, and download tools
 
 ## Getting Started
-1. Connect via Claude Code using the MCP configuration
-2. The agent can create files, run commands, and help you code
-3. All actions are visible in this VNC environment
-
-Happy coding! 🚀
+1. Chat from the OttoBot desktop cockpit.
+2. The local API connects the AI SDK agent to this MCP server.
+3. Tool actions run inside this sandbox and are visible through noVNC.
 EOF
 fi
 
-echo "Mock agent is ready!"
+echo "OttoBot sandbox is ready."
 echo "- VNC: vnc://localhost:$VNC_PORT"
 echo "- Web VNC: http://localhost:$NOVNC_PORT/vnc.html"
 echo "- MCP Server: http://localhost:$MCP_PORT/mcp"

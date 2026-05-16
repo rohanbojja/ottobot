@@ -6,8 +6,6 @@ import { createLogger } from "@/shared/logger";
 import { sessionRoutes } from "./routes/sessions";
 import { healthRoutes } from "./routes/health";
 import { downloadRoutes } from "./routes/downloads";
-import { chatWebSocketHandler } from "./websocket/chat-handler";
-import { UserMessageSchema } from "@/shared/schemas/websocket";
 
 const logger = createLogger("api-server");
 
@@ -106,11 +104,6 @@ export const createApiServer = () => {
     .use(healthRoutes)
     .use(sessionRoutes)
     .use(downloadRoutes)
-    // WebSocket endpoint
-    .ws("/session/:id/chat", {
-      body: UserMessageSchema,
-      ...(chatWebSocketHandler as any)
-    })
     // Request logging
     .onRequest(({ request }) => {
       logger.info(`${request.method} ${request.url}`);

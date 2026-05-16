@@ -1,10 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
+import type { UIMessage } from "ai";
 import { nanoid } from "nanoid";
 import type { ChatMessage, Session, SessionStatus } from "./types";
 import { createLogger } from "./logger";
 import { CONFIG } from "./config";
+import { sanitizeUIMessages } from "./ui-messages";
 
 const logger = createLogger("session-manager");
 
@@ -26,6 +28,7 @@ type SessionRow = {
 type CountRow = { count: number };
 type ValueRow = { value: string | number | null };
 type PayloadRow = { payload: string };
+type UIMessageRow = { payload: string; position: number };
 type LogRow = {
   timestamp: string;
   level: string;
@@ -65,6 +68,20 @@ db.exec(`
     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS session_ui_messages (
+    session_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, message_id),
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_session_ui_messages_session_position
+    ON session_ui_messages(session_id, position);
+
   CREATE TABLE IF NOT EXISTS session_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -72,13 +89,6 @@ db.exec(`
     level TEXT NOT NULL,
     message TEXT NOT NULL,
     metadata TEXT,
-    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS session_context (
-    session_id TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
 
@@ -134,6 +144,27 @@ function sessionToBindings(session: Session) {
 
 function parseJsonPayload<T>(payload: string): T {
   return JSON.parse(payload) as T;
+}
+
+function legacyMessageToUIMessage(message: ChatMessage, index: number): UIMessage | null {
+  if (message.type !== "user_prompt" && message.type !== "agent_response" && message.type !== "error") {
+    return null;
+  }
+
+  const role = message.type === "user_prompt" ? "user" : "assistant";
+  const text = message.content || message.metadata?.error || "";
+  if (!text) return null;
+
+  return {
+    id: `legacy-${index}-${message.timestamp}-${message.type}`,
+    role,
+    parts: [{ type: "text", text }],
+    metadata: {
+      legacyType: message.type,
+      timestamp: message.timestamp,
+      ...message.metadata,
+    },
+  };
 }
 
 export class SessionManager {
@@ -261,17 +292,7 @@ export class SessionManager {
     return typeof row?.value === "number" ? row.value : 0;
   }
 
-  static async addSessionMessage(
-    sessionId: string,
-    message: ChatMessage,
-  ): Promise<void> {
-    db.query(`
-      INSERT INTO session_messages (session_id, payload, created_at)
-      VALUES (?, ?, ?)
-    `).run(sessionId, JSON.stringify(message), new Date().toISOString());
-  }
-
-  static async getSessionMessages(
+  private static async getSessionMessages(
     sessionId: string,
     limit?: number,
   ): Promise<ChatMessage[]> {
@@ -283,6 +304,55 @@ export class SessionManager {
     `).all(sessionId, limit ?? 1000);
 
     return rows.reverse().map((row) => parseJsonPayload<ChatMessage>(row.payload));
+  }
+
+  static async upsertSessionUIMessages(
+    sessionId: string,
+    messages: UIMessage[],
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const validMessages = sanitizeUIMessages(messages);
+    const saveMessages = db.transaction((items: UIMessage[]) => {
+      items.forEach((message, position) => {
+        db.query(`
+          INSERT INTO session_ui_messages (
+            session_id, message_id, position, payload, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(session_id, message_id) DO UPDATE SET
+            position = excluded.position,
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        `).run(
+          sessionId,
+          message.id,
+          position,
+          JSON.stringify(message),
+          now,
+          now,
+        );
+      });
+    });
+
+    saveMessages(validMessages);
+  }
+
+  static async getSessionUIMessages(sessionId: string): Promise<UIMessage[]> {
+    const rows = db.query<UIMessageRow, [string]>(`
+      SELECT payload, position FROM session_ui_messages
+      WHERE session_id = ?
+      ORDER BY position ASC, created_at ASC
+    `).all(sessionId);
+
+    if (rows.length > 0) {
+      return sanitizeUIMessages(rows.map((row) => parseJsonPayload<UIMessage>(row.payload)));
+    }
+
+    const legacyMessages = await this.getSessionMessages(sessionId);
+    const uiMessages = legacyMessages
+      .map(legacyMessageToUIMessage)
+      .filter((message): message is UIMessage => message !== null);
+    return sanitizeUIMessages(uiMessages);
   }
 
   static async addSessionLog(
@@ -336,31 +406,6 @@ export class SessionManager {
 
   static async releaseMcpPort(port: number): Promise<void> {
     this.releasePort("mcp", port);
-  }
-
-  static async getSessionContext(sessionId: string): Promise<string | null> {
-    const row = db.query<PayloadRow, [string]>(
-      "SELECT payload FROM session_context WHERE session_id = ?",
-    ).get(sessionId);
-
-    return row?.payload ?? null;
-  }
-
-  static async storeSessionContext(
-    sessionId: string,
-    context: string,
-  ): Promise<void> {
-    db.query(`
-      INSERT INTO session_context (session_id, payload, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET
-        payload = excluded.payload,
-        updated_at = excluded.updated_at
-    `).run(sessionId, context, new Date().toISOString());
-  }
-
-  static async clearSessionContext(sessionId: string): Promise<void> {
-    db.query("DELETE FROM session_context WHERE session_id = ?").run(sessionId);
   }
 
   static async healthCheck(): Promise<boolean> {

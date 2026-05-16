@@ -16,7 +16,7 @@ Tauri desktop -> Elysia API -> SQLite registry -> WorkspaceSession -> SandboxBac
 
 ## Swap Ports
 
-- `AgentRuntime`: initialize, process messages, emit normalized events, and shut down without binding app code to LangGraph.
+- `AgentRuntime`: initialize, stream AI SDK UI messages, emit normalized events, and shut down without binding orchestration code to a specific provider.
 - `WorkspaceSession`: user-facing isolation boundary; scratch workspace now, git worktree next.
 - `SandboxBackend`: create/start/stop/log execution sandboxes without binding orchestration code to Dockerode, E2B, Daytona, Apple Container, or Firecracker.
 - `SessionOrchestrator`: own session state transitions and failure cleanup.

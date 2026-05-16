@@ -7,7 +7,7 @@ OttoBot is a local-first Tauri desktop coding-agent cockpit. The desktop shell s
 ```text
 Tauri desktop -> Elysia API -> SQLite session registry
                           -> Docker sandbox container
-                          -> LangGraph agent -> MCP server in container
+                          -> AI SDK ToolLoopAgent -> MCP server in container
 ```
 
 There is no Redis queue and no separate worker process. Creating a session allocates ports, starts a Docker sandbox, records it in SQLite, and starts the agent in the local API process.
@@ -15,12 +15,22 @@ There is no Redis queue and no separate worker process. Creating a session alloc
 ## Tech Stack
 
 - Bun + TypeScript
-- Elysia HTTP/WebSocket API
+- Elysia HTTP API with AI SDK UI streams
 - Tauri 2 desktop shell
 - React/Vite/Tailwind frontend in `frontend/`
 - Bun SQLite registry at `session-data/ottobot.sqlite`
 - Docker sandbox image with VNC/noVNC and MCP tools
-- LangGraph agent runtime for now
+- AI SDK v6 agent runtime with sandbox MCP tools
+
+## Sandbox Tooling
+
+The container-side MCP server exposes the agent's main operating surface:
+
+- Workspace tools: file reads, bounded line reads, directory trees, ripgrep search, exact text replacement, appends, and workspace status.
+- Shell tools: short foreground commands plus managed background processes with log reads and stop signals.
+- Computer tools: VNC desktop screenshots plus mouse, keyboard, scroll, drag, wait, and window-state actions through X11.
+
+For GUI tasks, use coordinate-based computer tools through the sandbox desktop.
 
 ## Quick Start
 
@@ -47,8 +57,11 @@ bun run build
 
 Important settings:
 
-- `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, or Codex CLI login
+- `LLM_PROVIDER` (`openai`, `anthropic`, `google`, or `codex-cli`)
 - `LLM_MODEL`
+- `CODEX_CLI_PATH` / `CODEX_CLI_CWD` when `LLM_PROVIDER=codex-cli`
+- `AI_AGENT_MAX_STEPS`
 - `OTTOBOT_SQLITE_PATH`
 - `VNC_PORT_RANGE_START` / `VNC_PORT_RANGE_END`
 - `VNC_RESOLUTION`
@@ -57,14 +70,19 @@ Important settings:
 
 Do not commit `.env`, `node_modules`, `dist`, `session-data`, or local runtime logs.
 
+When the desktop starts the API, the Settings tab can persist and inject
+`LLM_PROVIDER`, `LLM_MODEL`, and optional Codex CLI path/cwd overrides. Manual
+API runs still read those values from the shell environment.
+
 ## API
 
 - `POST /session` creates a local sandbox session directly.
 - `GET /session` lists active sessions from SQLite.
 - `GET /session/:id` returns session status.
+- `GET /session/:id/messages` returns persisted AI SDK UI messages.
+- `POST /session/:id/chat` streams AI SDK UI chat responses.
 - `DELETE /session/:id` stops/removes the sandbox and marks the session terminated.
 - `GET /session/:id/logs` returns session logs.
-- `WS /session/:id/chat` sends chat messages to the local agent.
 - `GET /download/:id` proxies the container workspace download.
 - `GET /health` reports SQLite and Docker health.
 - `GET /health/metrics` reports session counts.
@@ -72,9 +90,9 @@ Do not commit `.env`, `node_modules`, `dist`, `session-data`, or local runtime l
 ## Source Map
 
 ```text
-src/api/                     Elysia routes and WebSocket handler
+src/api/                     Elysia HTTP routes
 src/application/             Session orchestration and swappable runtime ports
-src/application/adapters/    SQLite store, Docker sandbox, LangGraph runtime
+src/application/adapters/    SQLite store, Docker sandbox, AI SDK runtime
 src/agent/                   Coding agent
 src/mcp/                     Container-side MCP server
 src/shared/                  Config, schemas, registry, router, types

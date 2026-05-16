@@ -2,14 +2,14 @@
 
 ## Project Shape
 
-OttoBot is a Bun, TypeScript, and Tauri coding-agent platform. The backend exposes an Elysia API, SQLite-backed session/container registry, Docker sandbox lifecycle, WebSocket chat, and MCP-backed tool execution inside sandbox containers. The desktop cockpit lives in `frontend/` with React/Vite/shadcn-style components.
+OttoBot is a Bun, TypeScript, and Tauri coding-agent platform. The backend exposes an Elysia API, SQLite-backed session/container registry, Docker sandbox lifecycle, AI SDK UI HTTP chat streams, and MCP-backed tool execution inside sandbox containers. The desktop cockpit lives in `frontend/` with React/Vite/shadcn-style components.
 
 The current runtime shape is:
 
 ```text
 User -> Tauri desktop -> Elysia API -> SQLite registry
                                   -> Docker session container
-                                  -> LangGraph agent -> MCP server in container
+                                  -> AI SDK ToolLoopAgent -> MCP server in container
 ```
 
 Keep changes aligned with this boundary: no Redis queue, no BullMQ, and no separate worker process. Session creation, termination, chat processing, registry writes, and agent lifecycle all happen in the local API process supervised by Tauri.
@@ -50,13 +50,16 @@ docker build -f docker/Dockerfile.agent -t ottobot-agent .
 
 ## Environment
 
-Copy `.env.example` to `.env` for local development and provide at least one model API key:
+Copy `.env.example` to `.env` for local development and provide at least one model API key or Codex CLI login:
 
 - `OPENAI_API_KEY`
 - `GEMINI_API_KEY`
 - `ANTHROPIC_API_KEY`
+- `codex login`
 
-Other important settings include `LLM_MODEL`, `OTTOBOT_SQLITE_PATH`, VNC port range `6080-6200`, MCP port range `8080-8200`, and `AGENT_IMAGE`.
+Other important settings include `LLM_PROVIDER`, `LLM_MODEL`, `CODEX_CLI_PATH`, `CODEX_CLI_CWD`, `AI_AGENT_MAX_STEPS`, `OTTOBOT_SQLITE_PATH`, VNC port range `6080-6200`, MCP port range `8080-8200`, and `AGENT_IMAGE`.
+
+The desktop Settings tab persists provider/model choices for desktop-managed API starts. Manual `bun run dev:api` runs still use the shell environment.
 
 Do not commit `.env`, `node_modules`, `dist`, `session-data`, or temporary local runtime files.
 
@@ -66,17 +69,17 @@ Do not commit `.env`, `node_modules`, `dist`, `session-data`, or temporary local
 - Keep TypeScript strict. The root `tsconfig.json` enables unused checks, strict null checks, no implicit returns, and indexed-access checks.
 - Prefer existing `@/` imports for backend source files.
 - Use Elysia schemas and response metadata for API endpoints so OpenAPI generation stays useful.
-- Route WebSocket messages through `SessionRouter` and keep message shapes aligned with `src/shared/schemas/websocket.ts`.
+- Route chat through `POST /session/:id/chat` AI SDK UI streams and persist `UIMessage[]` rows through `session_ui_messages`.
 - Use the Winston logger in `src/shared/logger.ts`; avoid adding raw `console.log` in app code.
 - On container/session failures, update session state, log context, and clean up containers and allocated ports.
-- Keep new agent tool behavior on the MCP path. `src/agent/coding-agent.ts` uses LangChain's `MultiServerMCPClient` to connect to the container MCP server; `src/mcp/server.ts` owns the container-side tools.
+- Keep new agent tool behavior on the MCP path. `src/agent/coding-agent.ts` uses AI SDK `createMCPClient` to connect to the container MCP server; `src/mcp/server.ts` owns the container-side tools.
 
 ## Desktop And Frontend Conventions
 
 - The desktop shell lives under `src-tauri/` and uses Tauri 2 with a React/Vite frontend.
 - The frontend lives under `frontend/` and uses React, Tailwind, and shadcn-style components copied from the desk template reference.
 - Keep API access in a small frontend client module and keep Tauri commands in a separate bridge module.
-- Preserve the session UX contract: dashboard lists sessions, session detail shows chat plus VNC access, and chat should handle reconnects and smooth new-message behavior.
+- Preserve the session UX contract: dashboard lists sessions, session detail shows chat plus VNC access, and chat should restore persisted AI SDK UI messages after refresh.
 - # TODO: Consider Firecracker VM isolation after the Docker session lifecycle and MCP tool contracts are stable.
 
 ## Verification

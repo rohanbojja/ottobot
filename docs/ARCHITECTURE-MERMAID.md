@@ -6,10 +6,10 @@
 graph TB
     User[User]
     Frontend[Tauri + React Desktop]
-    API[Elysia API<br/>HTTP + WebSocket]
-    Registry[SQLite Registry<br/>sessions, logs, messages, ports]
+    API[Elysia API<br/>HTTP + AI SDK UI streams]
+    Registry[SQLite Registry<br/>sessions, logs, UI messages, ports]
     Orchestrator[SessionOrchestrator]
-    Agent[LangGraph Agent Runtime]
+    Agent[AI SDK ToolLoopAgent]
     Sandbox[Docker Sandbox<br/>VNC + noVNC + MCP Server]
 
     User --> Frontend
@@ -54,19 +54,35 @@ sequenceDiagram
 sequenceDiagram
     participant U as User
     participant F as Desktop
-    participant A as API WebSocket
+    participant A as API HTTP Stream
     participant D as SQLite
     participant G as Agent
     participant C as MCP Server in Sandbox
 
     U->>F: Send message
-    F->>A: WebSocket message
-    A->>D: Store user message
-    A->>G: processMessage locally
+    F->>A: POST /session/:id/chat
+    A->>D: Store incoming UIMessage[]
+    A->>G: streamMessages locally
     G->>C: MCP tool call
     C-->>G: Tool result
-    G->>D: Store agent message
-    G-->>A: Publish local event
-    A-->>F: WebSocket response
+    G->>D: Store final UIMessage[]
+    G-->>A: AI SDK stream chunks
+    A-->>F: UI message stream response
     F-->>U: Display update
+```
+
+## Sandbox Tool Surface
+
+```mermaid
+graph LR
+    Agent[AI SDK Agent]
+    MCP[Sandbox MCP Server]
+    Files[Workspace<br/>read/search/edit]
+    Shell[Shell<br/>commands + managed processes]
+    Computer[X11 Desktop<br/>mouse/keyboard/screenshots/windows]
+
+    Agent <-. HTTP MCP .-> MCP
+    MCP --> Files
+    MCP --> Shell
+    MCP --> Computer
 ```
