@@ -481,6 +481,10 @@ export const PromptInputActionAddScreenshot = ({
   );
 };
 
+function isImageMediaType(mediaType: string | undefined): boolean {
+  return typeof mediaType === "string" && mediaType.startsWith("image/");
+}
+
 export interface PromptInputMessage {
   text: string;
   files: FileUIPart[];
@@ -902,6 +906,49 @@ export const PromptInput = ({
     [usingProvider, controller, files, onSubmit, clear]
   );
 
+  const attachmentPreview =
+    files.length > 0 ? (
+      <div className="flex flex-wrap gap-2 border-b border-border/60 bg-background/20 px-4 py-3">
+        {files.map((file) => {
+          const label = file.filename || file.mediaType || "attachment";
+          const imageAttachment = isImageMediaType(file.mediaType);
+
+          return (
+            <div
+              className="group flex max-w-full items-center gap-2 rounded-lg border border-border/70 bg-background/60 px-2 py-2"
+              key={file.id}
+            >
+              {imageAttachment ? (
+                <img
+                  alt={label}
+                  className="size-11 rounded-md object-cover"
+                  src={file.url}
+                />
+              ) : (
+                <div className="grid size-11 place-items-center rounded-md bg-muted text-muted-foreground">
+                  <ImageIcon className="size-4" />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium">{label}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {file.mediaType || "file"}
+                </p>
+              </div>
+              <button
+                aria-label={`Remove ${label}`}
+                className="ml-1 grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={() => remove(file.id)}
+                type="button"
+              >
+                <XIcon className="size-4" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    ) : null;
+
   // Render with or without local provider
   const inner = (
     <>
@@ -921,7 +968,10 @@ export const PromptInput = ({
         ref={formRef}
         {...props}
       >
-        <InputGroup className="overflow-hidden">{children}</InputGroup>
+        <InputGroup className="overflow-hidden">
+          {attachmentPreview}
+          {children}
+        </InputGroup>
       </form>
     </>
   );
@@ -1013,19 +1063,33 @@ export const PromptInputTextarea = ({
 
   const handlePaste: ClipboardEventHandler<HTMLTextAreaElement> = useCallback(
     (event) => {
-      const items = event.clipboardData?.items;
-
-      if (!items) {
+      const clipboardData = event.clipboardData;
+      if (!clipboardData) {
         return;
       }
 
       const files: File[] = [];
+      const seen = new Set<string>();
+      const addFile = (file: File) => {
+        const signature = `${file.name}:${file.size}:${file.type}:${file.lastModified}`;
+        if (seen.has(signature)) {
+          return;
+        }
+        seen.add(signature);
+        files.push(file);
+      };
 
-      for (const item of items) {
+      if (clipboardData.files.length > 0) {
+        for (const file of clipboardData.files) {
+          addFile(file);
+        }
+      }
+
+      for (const item of clipboardData.items) {
         if (item.kind === "file") {
           const file = item.getAsFile();
           if (file) {
-            files.push(file);
+            addFile(file);
           }
         }
       }

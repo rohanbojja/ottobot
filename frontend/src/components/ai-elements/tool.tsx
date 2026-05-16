@@ -25,7 +25,10 @@ export type ToolProps = ComponentProps<typeof Collapsible>;
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("group not-prose mb-4 w-full rounded-md border", className)}
+    className={cn(
+      "group not-prose mb-2.5 w-full overflow-hidden rounded-md border border-border/60 bg-background/15 shadow-none",
+      className
+    )}
     {...props}
   />
 );
@@ -45,11 +48,11 @@ export type ToolHeaderProps = {
 );
 
 const statusLabels: Record<ToolPart["state"], string> = {
-  "approval-requested": "Awaiting Approval",
-  "approval-responded": "Responded",
+  "approval-requested": "Approval",
+  "approval-responded": "Approved",
   "input-available": "Running",
   "input-streaming": "Pending",
-  "output-available": "Completed",
+  "output-available": "Done",
   "output-denied": "Denied",
   "output-error": "Error",
 };
@@ -64,8 +67,30 @@ const statusIcons: Record<ToolPart["state"], ReactNode> = {
   "output-error": <XCircleIcon className="size-4 text-red-600" />,
 };
 
+const statusToneClasses: Record<ToolPart["state"], string> = {
+  "approval-requested": "border-amber-400/30 bg-amber-400/10 text-amber-100",
+  "approval-responded": "border-sky-400/30 bg-sky-400/10 text-sky-100",
+  "input-available": "border-primary/30 bg-primary/10 text-primary",
+  "input-streaming": "border-muted-foreground/30 bg-muted/40 text-muted-foreground",
+  "output-available": "border-emerald-400/30 bg-emerald-400/10 text-emerald-100",
+  "output-denied": "border-orange-400/30 bg-orange-400/10 text-orange-100",
+  "output-error": "border-rose-400/30 bg-rose-400/10 text-rose-100",
+};
+
+function formatToolName(value: string) {
+  return value
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export const getStatusBadge = (status: ToolPart["state"]) => (
-  <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
+  <Badge
+    className={cn("gap-1 rounded-full border px-2 py-0.5 text-[0.6rem] font-medium tracking-wide", statusToneClasses[status])}
+    variant="outline"
+  >
     {statusIcons[status]}
     {statusLabels[status]}
   </Badge>
@@ -81,21 +106,26 @@ export const ToolHeader = ({
 }: ToolHeaderProps) => {
   const derivedName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
+  const displayName = title ?? formatToolName(derivedName);
 
   return (
     <CollapsibleTrigger
       className={cn(
-        "flex w-full items-center justify-between gap-4 p-3",
+        "flex w-full items-center justify-between gap-3 border-b border-border/60 bg-background/20 px-3 py-2 text-left transition-colors hover:bg-background/30",
         className
       )}
       {...props}
     >
-      <div className="flex items-center gap-2">
-        <WrenchIcon className="size-4 text-muted-foreground" />
-        <span className="font-medium text-sm">{title ?? derivedName}</span>
-        {getStatusBadge(state)}
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="grid size-6 shrink-0 place-items-center rounded-sm border border-border/70 bg-background/70 text-muted-foreground">
+          <WrenchIcon className="size-4" />
+        </div>
+        <div className="truncate font-mono text-[0.92rem] leading-5 text-foreground">{displayName}</div>
       </div>
-      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+      <div className="flex shrink-0 items-center gap-2.5">
+        {getStatusBadge(state)}
+        <ChevronDownIcon className="size-3.5 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+      </div>
     </CollapsibleTrigger>
   );
 };
@@ -105,7 +135,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-4 p-4 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+      "space-y-2 px-3 py-3 text-[0.78rem] text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2",
       className
     )}
     {...props}
@@ -137,10 +167,10 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => {
 
   return (
     <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        Parameters
+      <h4 className="font-medium text-[0.6rem] uppercase tracking-[0.22em] text-muted-foreground">
+        Input
       </h4>
-      <div className="rounded-md bg-muted/50">
+      <div className="overflow-hidden rounded-lg border border-border/60 bg-muted/50">
         <CodeBlock code={inputCode} language="json" />
       </div>
     </div>
@@ -172,15 +202,15 @@ export const ToolOutput = ({
 
   return (
     <div className={cn("space-y-2", className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
+      <h4 className="font-medium text-[0.6rem] uppercase tracking-[0.22em] text-muted-foreground">
+        {errorText ? "Error" : "Output"}
       </h4>
       <div
         className={cn(
-          "overflow-x-auto rounded-md text-xs [&_table]:w-full",
+          "overflow-x-auto rounded-lg border text-xs [&_table]:w-full",
           errorText
-            ? "bg-destructive/10 text-destructive"
-            : "bg-muted/50 text-foreground"
+            ? "border-destructive/20 bg-destructive/10 text-destructive"
+            : "border-border/60 bg-muted/50 text-foreground"
         )}
       >
         {errorText && <div>{errorText}</div>}

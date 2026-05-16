@@ -5,14 +5,17 @@ import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
-    className={cn("relative flex-1 overflow-y-hidden", className)}
+    className={cn(
+      "relative flex-1 overflow-hidden rounded-xl border border-border/70 bg-background/15",
+      className
+    )}
     initial="smooth"
     resize="smooth"
     role="log"
@@ -29,10 +32,29 @@ export const ConversationContent = ({
   ...props
 }: ConversationContentProps) => (
   <StickToBottom.Content
-    className={cn("flex flex-col gap-8 p-4", className)}
+    className={cn("flex flex-col gap-3 p-4 sm:p-5", className)}
     {...props}
   />
 );
+
+export type ConversationFollowLatestProps = {
+  followKey: string | number;
+  enabled?: boolean;
+};
+
+export const ConversationFollowLatest = ({
+  followKey,
+  enabled = true,
+}: ConversationFollowLatestProps) => {
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+
+  useEffect(() => {
+    if (!enabled || !isAtBottom) return;
+    void scrollToBottom();
+  }, [enabled, followKey, isAtBottom, scrollToBottom]);
+
+  return null;
+};
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;
@@ -85,7 +107,7 @@ export const ConversationScrollButton = ({
     !isAtBottom && (
       <Button
         className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
+          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full border-border/70 bg-background/90 shadow-lg backdrop-blur dark:bg-background/90 dark:hover:bg-muted",
           className
         )}
         onClick={handleScrollToBottom}
@@ -100,11 +122,14 @@ export const ConversationScrollButton = ({
   );
 };
 
-const getMessageText = (message: UIMessage): string =>
-  message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("");
+const formatFilePart = (part: Extract<UIMessage["parts"][number], { type: "file" }>): string => {
+  const label = part.filename ?? part.mediaType;
+  if (part.mediaType.startsWith("image/")) {
+    return `![${label}](${part.url})`;
+  }
+
+  return `[${label}](${part.url})`;
+};
 
 export type ConversationDownloadProps = Omit<
   ComponentProps<typeof Button>,
@@ -118,7 +143,22 @@ export type ConversationDownloadProps = Omit<
 const defaultFormatMessage = (message: UIMessage): string => {
   const roleLabel =
     message.role.charAt(0).toUpperCase() + message.role.slice(1);
-  return `**${roleLabel}:** ${getMessageText(message)}`;
+  const content = message.parts
+    .map((part) => {
+      if (part.type === "text") {
+        return part.text;
+      }
+
+      if (part.type === "file") {
+        return formatFilePart(part);
+      }
+
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return content ? `**${roleLabel}:** ${content}` : `**${roleLabel}:**`;
 };
 
 export const messagesToMarkdown = (
