@@ -33,6 +33,7 @@
     "elysia": "^1.4.28",
     "elysia-mcp": "^0.1.1",
     "nanoid": "^5.1.5",
+    "playwright": "^1.60.0",
     "winston": "^3.17.0",
     "zod": "^4.1.8"
   },

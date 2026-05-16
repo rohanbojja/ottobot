@@ -1,126 +1,96 @@
 # OttoBot
 
-OttoBot is a local-first Tauri desktop coding-agent cockpit. The desktop shell supervises the local API, the API owns session/container lifecycle directly, and session state is stored in a small SQLite registry.
+OttoBot is a local-first Tauri desktop cockpit for running coding-agent sessions in Docker sandboxes. The desktop app supervises a local Elysia API, the API owns session/container lifecycle directly, and SQLite stores session state on disk.
 
-## Runtime Shape
+<p align="center">
+  <img src="docs/assets/ottobot-session-detail.png" alt="OttoBot session workspace with chat, tools, desktop, and logs">
+</p>
+
+<p align="center">
+  <img src="docs/assets/ottobot-dashboard.png" alt="OttoBot dashboard" width="49%">
+  <img src="docs/assets/ottobot-settings-panel.png" alt="OttoBot settings" width="49%">
+</p>
+
+## Runtime
 
 ```text
-Tauri desktop -> Elysia API -> SQLite session registry
+Tauri desktop -> Elysia API -> SQLite registry
                           -> Docker sandbox container
                           -> AI SDK ToolLoopAgent -> MCP server in container
 ```
 
-There is no Redis queue and no separate worker process. Creating a session allocates ports, starts a Docker sandbox, records it in SQLite, and starts the agent in the local API process.
+There is no Redis queue, BullMQ worker, or separate background process. Session creation, chat streaming, registry writes, container cleanup, and agent lifecycle all run in the local API process supervised by Tauri.
 
-## Tech Stack
+## Stack
 
 - Bun + TypeScript
 - Elysia HTTP API with AI SDK UI streams
 - Tauri 2 desktop shell
-- React/Vite/Tailwind frontend in `frontend/`
-- Bun SQLite registry at `session-data/ottobot.sqlite`
-- Docker sandbox image with VNC/noVNC and MCP tools
-- AI SDK v6 agent runtime with sandbox MCP tools
-
-## Sandbox Tooling
-
-The container-side MCP server exposes the agent's main operating surface:
-
-- Workspace tools: file reads, bounded line reads, directory trees, ripgrep search, exact text replacement, appends, and workspace status.
-- Shell tools: short foreground commands plus managed background processes with log reads and stop signals.
-- Computer tools: VNC desktop screenshots plus mouse, keyboard, scroll, drag, wait, and window-state actions through X11.
-
-For GUI tasks, use coordinate-based computer tools through the sandbox desktop.
+- React, Vite, Tailwind, and shadcn-style UI in `frontend/`
+- SQLite session registry at `session-data/ottobot.sqlite`
+- Docker agent image with noVNC, Playwright browser tools, desktop control, shell, and workspace MCP tools
 
 ## Quick Start
 
 ```bash
 bun install
 cp .env.example .env
-docker build -f docker/Dockerfile.agent -t ottobot-agent .
+bun run docker:agent
 bun run dev
 ```
 
-`bun run dev` launches the Tauri desktop shell. Settings can start the local API and configure the Docker agent image. Docker must already be running, and at least one model API key should be present in `.env`.
+Docker must be running, and the agent image must exist before session creation works. Provide at least one model path through `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, or `codex login`.
 
-Useful commands:
+## Useful Commands
 
 ```bash
 bun run dev:api
+bun run dev:web
 bun run typecheck
-cd frontend && bun run check
+bun run check:frontend
 bun run desktop:check
 bun run build
 ```
 
-## Environment
+Frontend-only commands can also run from `frontend/`:
 
-Important settings:
+```bash
+bun run check
+bun run build
+bun run dev
+```
 
-- `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, or Codex CLI login
-- `LLM_PROVIDER` (`openai`, `anthropic`, `google`, or `codex-cli`)
-- `LLM_MODEL`
-- `CODEX_CLI_PATH` / `CODEX_CLI_CWD` when `LLM_PROVIDER=codex-cli`
+## Configuration
+
+Important environment values:
+
+- `LLM_PROVIDER` and `LLM_MODEL`
+- `CODEX_CLI_PATH` and `CODEX_CLI_CWD` when `LLM_PROVIDER=codex-cli`
 - `AI_AGENT_MAX_STEPS`
 - `OTTOBOT_SQLITE_PATH`
-- `VNC_PORT_RANGE_START` / `VNC_PORT_RANGE_END`
-- `VNC_RESOLUTION`
-- `MCP_PORT_RANGE_START` / `MCP_PORT_RANGE_END`
 - `AGENT_IMAGE`
+- `VNC_PORT_RANGE_START` / `VNC_PORT_RANGE_END`
+- `MCP_PORT_RANGE_START` / `MCP_PORT_RANGE_END`
 
-Do not commit `.env`, `node_modules`, `dist`, `session-data`, or local runtime logs.
+The desktop Settings tab persists provider/model/image choices for desktop-managed API starts. Manual `bun run dev:api` runs still use the shell environment.
 
-When the desktop starts the API, the Settings tab can persist and inject
-`LLM_PROVIDER`, `LLM_MODEL`, and optional Codex CLI path/cwd overrides. Manual
-API runs still read those values from the shell environment.
+## API Surface
 
-## API
-
-- `POST /session` creates a local sandbox session directly.
-- `GET /session` lists active sessions from SQLite.
-- `GET /session/:id` returns session status.
-- `GET /session/:id/messages` returns persisted AI SDK UI messages.
-- `POST /session/:id/chat` streams AI SDK UI chat responses.
-- `DELETE /session/:id` stops/removes the sandbox and marks the session terminated.
-- `GET /session/:id/logs` returns session logs.
-- `GET /download/:id` proxies the container workspace download.
-- `GET /health` reports SQLite and Docker health.
-- `GET /health/metrics` reports session counts.
-
-## Source Map
-
-```text
-src/api/                     Elysia HTTP routes
-src/application/             Session orchestration and swappable runtime ports
-src/application/adapters/    SQLite store, Docker sandbox, AI SDK runtime
-src/agent/                   Coding agent
-src/mcp/                     Container-side MCP server
-src/shared/                  Config, schemas, registry, router, types
-src-tauri/                   Tauri shell and local API supervisor
-frontend/src/                Desktop cockpit UI
-```
+- `POST /session` creates a sandbox session.
+- `GET /session` lists sessions.
+- `GET /session/:id/messages` restores persisted AI SDK UI messages.
+- `POST /session/:id/chat` streams chat responses.
+- `DELETE /session/:id` terminates and cleans up a session.
+- `GET /session/:id/logs` returns recent session logs.
+- `GET /download/:id` downloads the session workspace.
+- `GET /health` and `GET /health/metrics` report runtime health.
 
 ## Verification
 
-For backend changes:
-
 ```bash
 bun run typecheck
-bun run build
-```
-
-For frontend changes:
-
-```bash
-cd frontend
-bun run check
-bun run build
-```
-
-For desktop changes:
-
-```bash
+cd frontend && bun run check && bun run build
 bun run desktop:check
 ```
 
-Container/session behavior is only verified when Docker is running, the `ottobot-agent` image exists, and a session can create a Docker sandbox.
+Container/session behavior is only verified when Docker is running, `ottobot-agent` exists, and a session can create a Docker sandbox.

@@ -500,6 +500,60 @@ fn service_log_path(script: &str) -> PathBuf {
     desktop_log_dir().join(format!("{}.log", script.replace(':', "-")))
 }
 
+fn service_pid_path(key: &str) -> PathBuf {
+    desktop_log_dir().join(format!("{key}.pid"))
+}
+
+fn read_service_pid(key: &str) -> Option<u32> {
+    let content = fs::read_to_string(service_pid_path(key)).ok()?;
+    content.trim().parse::<u32>().ok()
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(not(unix))]
+fn process_alive(pid: u32) -> bool {
+    pid > 0
+}
+
+#[cfg(unix)]
+fn kill_process(pid: u32) -> Result<(), String> {
+    Command::new("kill")
+        .arg(pid.to_string())
+        .status()
+        .map_err(|error| format!("failed to stop process {pid}: {error}"))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("failed to stop process {pid}: {status}"))
+            }
+        })
+}
+
+#[cfg(not(unix))]
+fn kill_process(pid: u32) -> Result<(), String> {
+    Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status()
+        .map_err(|error| format!("failed to stop process {pid}: {error}"))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("failed to stop process {pid}: {status}"))
+            }
+        })
+}
+
 fn read_log_tail(path: &Path) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let tail = content
@@ -553,6 +607,7 @@ fn managed_status(
                     Some(tail) => format!("managed process exited with {exit}. Last logs: {tail}"),
                     None => format!("managed process exited with {exit}"),
                 };
+                let _ = fs::remove_file(service_pid_path(key));
                 *child = None;
                 return status(key, label, "stopped", true, None, detail, None);
             }
@@ -560,6 +615,22 @@ fn managed_status(
                 return status(key, label, "error", true, None, error.to_string(), None);
             }
         }
+    }
+
+    if let Some(pid) = read_service_pid(key) {
+        if process_alive(pid) && fallback_port.is_some_and(tcp_reachable) {
+            return status(
+                key,
+                label,
+                "running",
+                true,
+                Some(pid),
+                "managed by OttoBot desktop",
+                None,
+            );
+        }
+
+        let _ = fs::remove_file(service_pid_path(key));
     }
 
     if fallback_port.is_some_and(tcp_reachable) {
@@ -636,6 +707,11 @@ fn spawn_service(
     let child = command
         .spawn()
         .map_err(|error| format!("failed to start {script} with {}: {error}", bun_path.display()))?;
+    let pid = child.id();
+
+    if script == "dev:api" {
+        let _ = fs::write(service_pid_path("api"), pid.to_string());
+    }
 
     Ok(ManagedChild {
         child,
@@ -725,6 +801,16 @@ fn stop_local_service_blocking(service: String) -> Result<ServiceStatus, String>
             .kill()
             .map_err(|error| format!("failed to stop {service}: {error}"))?;
         let _ = managed.child.wait();
+        let _ = fs::remove_file(service_pid_path(key));
+        return Ok(status(key, label, "stopped", true, None, "stopped", None));
+    }
+
+    if let Some(pid) = read_service_pid(key) {
+        if process_alive(pid) {
+            kill_process(pid)?;
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let _ = fs::remove_file(service_pid_path(key));
         return Ok(status(key, label, "stopped", true, None, "stopped", None));
     }
 
@@ -734,6 +820,20 @@ fn stop_local_service_blocking(service: String) -> Result<ServiceStatus, String>
 #[tauri::command]
 async fn stop_local_service(service: String) -> Result<ServiceStatus, String> {
     run_blocking(move || stop_local_service_blocking(service)).await
+}
+
+fn start_api_on_launch(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let result = run_blocking(move || start_local_service_blocking(app, "api".to_string())).await;
+        if let Err(error) = result {
+            let log_dir = desktop_log_dir();
+            let _ = fs::create_dir_all(&log_dir);
+            let log_path = log_dir.join("desktop-startup.log");
+            if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(&log_path) {
+                let _ = writeln!(log, "{} failed to start API on launch: {error}", now_ms());
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -767,6 +867,14 @@ fn get_provider_config(app: AppHandle) -> Result<ProviderConfig, String> {
 
 #[tauri::command]
 fn save_provider_config(app: AppHandle, mut config: ProviderConfig) -> Result<ProviderConfig, String> {
+    let should_restart_api = {
+        let mut registry = process_registry()
+            .lock()
+            .map_err(|error| format!("process registry lock failed: {error}"))?;
+        let current = managed_status(&mut registry.api, "api", "API", Some(API_PORT));
+        current.state == "running" && current.managed
+    };
+
     let path = provider_config_path(&app)?;
     let parent = path
         .parent()
@@ -780,6 +888,11 @@ fn save_provider_config(app: AppHandle, mut config: ProviderConfig) -> Result<Pr
         .map_err(|error| format!("failed to serialize provider config: {error}"))?;
     fs::write(&path, content)
         .map_err(|error| format!("failed to write provider config {}: {error}", path.display()))?;
+
+    if should_restart_api {
+        stop_local_service_blocking("api".to_string())?;
+        start_local_service_blocking(app, "api".to_string())?;
+    }
 
     Ok(config)
 }
@@ -925,6 +1038,7 @@ pub fn run() {
         .setup(|app| {
             create_main_window(&app.handle())?;
             apply_main_window_vibrancy(app)?;
+            start_api_on_launch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

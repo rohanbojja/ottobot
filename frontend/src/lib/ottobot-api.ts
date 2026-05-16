@@ -79,7 +79,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error("OttoBot API is offline. Start the local API from Settings or run bun run dev:api.");
+      throw new Error("OttoBot API is offline. Restart the desktop app.");
     }
 
     throw error;

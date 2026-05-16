@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">OttoBot mark</title>
+  <desc id="desc">A paired double-O loop with a small command caret.</desc>
+  <rect width="512" height="512" rx="112" fill="#0F1718"/>
+  <path d="M175 177H222C267.287 177 304 213.713 304 259C304 304.287 267.287 341 222 341H175C129.713 341 93 304.287 93 259C93 213.713 129.713 177 175 177Z" stroke="#EAF0EE" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M290 177H337C382.287 177 419 213.713 419 259C419 304.287 382.287 341 337 341H290C244.713 341 208 304.287 208 259C208 213.713 244.713 177 290 177Z" stroke="#EAF0EE" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M258 219L298 259L258 299" stroke="#73D8D2" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

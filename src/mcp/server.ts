@@ -8,6 +8,29 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import archiver from 'archiver';
 import type { ToolServer } from '@/application/ports';
+import {
+  browserBack,
+  browserClick,
+  browserClose,
+  browserConsoleMessages,
+  browserDrag,
+  browserEvaluate,
+  browserExtractContent,
+  browserFillForm,
+  browserForward,
+  browserGetState,
+  browserHover,
+  browserNavigate,
+  browserNetworkRequests,
+  browserPressKey,
+  browserResize,
+  browserRunPlaywright,
+  browserScreenshot,
+  browserSelectOption,
+  browserTabs,
+  browserType,
+  browserWaitFor,
+} from './browser-tools';
 
 const PORT = process.env['MCP_PORT'] || 8080;
 const WORKSPACE_DIR = '/home/developer/workspace';
@@ -1796,7 +1819,163 @@ function createMcpApp() {
         return textResult(await computerListWindows());
       }, 'List visible windows in the sandbox desktop.');
 
-      console.log('MCP Server tools registered (filesystem, shell, managed processes, computer, and window tools)');
+      registerTool('browser_navigate', toolInputSchema({
+        url: z.string().describe('URL to open in the sandbox Chromium browser'),
+        waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional().describe('Navigation wait condition')
+      }), async (args) => {
+        return textResult(await browserNavigate(args.url, args.waitUntil));
+      }, 'Navigate the sandbox browser to a URL and return page state.');
+
+      registerTool('browser_back', {}, async () => {
+        return textResult(await browserBack());
+      }, 'Go back in browser history.');
+
+      registerTool('browser_forward', {}, async () => {
+        return textResult(await browserForward());
+      }, 'Go forward in browser history.');
+
+      registerTool('browser_get_state', {}, async () => {
+        return textResult(await browserGetState());
+      }, 'Return browser URL, title, visible interactive elements, and page text excerpt.');
+
+      registerTool('browser_click', toolInputSchema({
+        selector: z.string().optional().describe('CSS selector to click'),
+        index: z.number().optional().describe('Interactive element index from browser_get_state'),
+        text: z.string().optional().describe('Visible text to click'),
+        label: z.string().optional().describe('Accessible label to click'),
+        button: z.enum(['left', 'right', 'middle']).optional().describe('Mouse button'),
+        double: z.boolean().optional().describe('Double-click when true'),
+        timeoutMs: z.number().optional().describe('Timeout in milliseconds')
+      }), async (args) => {
+        return textResult(await browserClick(args));
+      }, 'Click a browser element by selector, element index, text, or label.');
+
+      registerTool('browser_hover', toolInputSchema({
+        selector: z.string().optional().describe('CSS selector to hover'),
+        index: z.number().optional().describe('Interactive element index from browser_get_state'),
+        text: z.string().optional().describe('Visible text to hover'),
+        label: z.string().optional().describe('Accessible label to hover')
+      }), async (args) => {
+        return textResult(await browserHover(args));
+      }, 'Hover a browser element.');
+
+      registerTool('browser_drag', toolInputSchema({
+        fromSelector: z.string().optional().describe('Source CSS selector'),
+        fromIndex: z.number().optional().describe('Source interactive element index'),
+        toSelector: z.string().optional().describe('Target CSS selector'),
+        toIndex: z.number().optional().describe('Target interactive element index')
+      }), async (args) => {
+        return textResult(await browserDrag(args));
+      }, 'Drag one browser element to another.');
+
+      registerTool('browser_type', toolInputSchema({
+        selector: z.string().optional().describe('CSS selector to type into'),
+        index: z.number().optional().describe('Interactive element index from browser_get_state'),
+        label: z.string().optional().describe('Accessible label to type into'),
+        text: z.string().describe('Text to type'),
+        clear: z.boolean().optional().describe('Replace existing text instead of appending'),
+        delayMs: z.number().optional().describe('Delay between keystrokes'),
+        submit: z.boolean().optional().describe('Press Enter after typing')
+      }), async (args) => {
+        return textResult(await browserType(args));
+      }, 'Type into a browser input by selector, element index, or label.');
+
+      registerTool('browser_fill_form', toolInputSchema({
+        fields: z.array(z.object({
+          selector: z.string().optional(),
+          index: z.number().optional(),
+          label: z.string().optional(),
+          value: z.string()
+        })).describe('Fields to fill by selector, element index, or label')
+      }), async (args) => {
+        return textResult(await browserFillForm(args.fields));
+      }, 'Fill multiple browser form fields.');
+
+      registerTool('browser_select_option', toolInputSchema({
+        selector: z.string().optional().describe('CSS selector for select element'),
+        index: z.number().optional().describe('Interactive element index from browser_get_state'),
+        label: z.string().optional().describe('Accessible label for select element'),
+        value: z.union([z.string(), z.array(z.string())]).describe('Option value or values to select')
+      }), async (args) => {
+        return textResult(await browserSelectOption(args));
+      }, 'Select one or more options in a browser select control.');
+
+      registerTool('browser_press_key', toolInputSchema({
+        key: z.string().describe('Key or key combination, for example Enter, Escape, Control+S')
+      }), async (args) => {
+        return textResult(await browserPressKey(args.key));
+      }, 'Press a key in the active browser page.');
+
+      registerTool('browser_wait_for', toolInputSchema({
+        selector: z.string().optional().describe('CSS selector to wait for'),
+        text: z.string().optional().describe('Visible text to wait for'),
+        url: z.string().optional().describe('URL or glob pattern to wait for'),
+        timeMs: z.number().optional().describe('Fixed delay in milliseconds'),
+        state: z.enum(['attached', 'detached', 'visible', 'hidden']).optional().describe('Selector wait state'),
+        timeoutMs: z.number().optional().describe('Timeout in milliseconds')
+      }), async (args) => {
+        return textResult(await browserWaitFor(args));
+      }, 'Wait for browser text, selector, URL, or time delay.');
+
+      registerTool('browser_take_screenshot', toolInputSchema({
+        name: z.string().optional().describe('Optional screenshot filename'),
+        fullPage: z.boolean().optional().describe('Capture the full page instead of viewport')
+      }), async (args) => {
+        const result = await browserScreenshot(args.name, args.fullPage);
+        return imageResult(`Browser screenshot saved to ${result.path}`, result.data);
+      }, 'Capture a browser screenshot and return image content.');
+
+      registerTool('browser_extract_content', toolInputSchema({
+        selector: z.string().optional().describe('Optional CSS selector to extract text from'),
+        maxChars: z.number().optional().describe('Maximum characters to return')
+      }), async (args) => {
+        return textResult(await browserExtractContent(args));
+      }, 'Extract visible text content from the browser page.');
+
+      registerTool('browser_evaluate', toolInputSchema({
+        script: z.string().describe('JavaScript expression to evaluate in the page context')
+      }), async (args) => {
+        return textResult(await browserEvaluate(args.script));
+      }, 'Evaluate a JavaScript expression in the active browser page.');
+
+      registerTool('browser_run_playwright', toolInputSchema({
+        script: z.string().describe('Async Playwright snippet body with page, context, and browser variables available')
+      }), async (args) => {
+        return textResult(await browserRunPlaywright(args.script));
+      }, 'Run a Playwright snippet against the active browser.');
+
+      registerTool('browser_console_messages', toolInputSchema({
+        limit: z.number().optional().describe('Maximum console messages to return')
+      }), async (args) => {
+        return textResult(await browserConsoleMessages(args.limit));
+      }, 'Return recent browser console messages.');
+
+      registerTool('browser_network_requests', toolInputSchema({
+        limit: z.number().optional().describe('Maximum network events to return')
+      }), async (args) => {
+        return textResult(await browserNetworkRequests(args.limit));
+      }, 'Return recent browser network request/response events.');
+
+      registerTool('browser_tabs', toolInputSchema({
+        action: z.enum(['list', 'new', 'select', 'close']).describe('Tab action'),
+        index: z.number().optional().describe('Tab index for select/close'),
+        url: z.string().optional().describe('URL for new tab')
+      }), async (args) => {
+        return textResult(await browserTabs(args));
+      }, 'List, create, select, or close browser tabs.');
+
+      registerTool('browser_resize', toolInputSchema({
+        width: z.number().describe('Viewport width'),
+        height: z.number().describe('Viewport height')
+      }), async (args) => {
+        return textResult(await browserResize(args.width, args.height));
+      }, 'Resize the active browser viewport.');
+
+      registerTool('browser_close', {}, async () => {
+        return textResult(await browserClose());
+      }, 'Close the sandbox browser.');
+
+      console.log('MCP Server tools registered (filesystem, shell, managed processes, browser, computer, and window tools)');
     }
   }));
 }

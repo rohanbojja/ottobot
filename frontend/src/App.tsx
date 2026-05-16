@@ -40,7 +40,6 @@ import {
 } from "@/components/ai-elements/tool";
 import {
   Activity,
-  Bot,
   Boxes,
   CheckCircle2,
   ChevronRight,
@@ -51,17 +50,16 @@ import {
   Loader2,
   MessageSquare,
   Monitor,
-  Play,
   Plus,
   RefreshCw,
   Save,
   Send,
   Settings,
-  Square,
   Terminal,
   Trash2,
 } from "lucide-react";
 
+import { OttoBotMark } from "@/components/brand";
 import {
   deskHeaderClass,
   deskIconControlPillClass,
@@ -176,10 +174,10 @@ const IDLE_CREATE_FLOW: CreateFlow = {
 };
 const LOG_REFRESH_INTERVAL_MS = 12_000;
 const GET_STARTED_PROMPTS = [
-  "Fix a UI bug",
-  "Add a command",
-  "Create a screen",
-  "Review a change",
+  "Build a todo app",
+  "Make a notes app",
+  "Create a landing page",
+  "Add a login form",
 ];
 const LLM_PROVIDER_OPTIONS = [
   { id: "openai", label: "OpenAI", detail: "OPENAI_API_KEY" },
@@ -482,7 +480,8 @@ export default function App() {
       const saved = await saveProviderConfig(nextConfig);
       setProviderConfig(saved);
       setApiError(null);
-      await refreshRuntime();
+      await waitForApiReady();
+      await refreshAll();
     } catch (error) {
       setApiError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -722,8 +721,8 @@ export default function App() {
               className="gap-3 pt-2"
             >
               <div data-sidebar-collapsed="hide" className="flex h-7 min-w-0 -translate-y-0.5 items-center gap-2 pl-[var(--chrome-titlebar-safe-left)]">
-                <Bot className="h-4 w-4 text-primary" />
-                <span className="truncate text-sm font-semibold">OttoBot</span>
+                <OttoBotMark className="h-4 w-7 text-sidebar-foreground" />
+                <span className="truncate text-sm font-semibold tracking-normal">OttoBot</span>
               </div>
               <Button
                 data-sidebar-collapsed="icon-button"
@@ -969,23 +968,22 @@ function NewSessionView({
   const showWarmup = createFlow.state !== "idle";
 
   return (
-    <div className="flex h-full min-h-[36rem] items-center justify-center overflow-y-auto px-4 py-10">
-      <div className="grid w-full max-w-4xl gap-5">
-        <div className="mx-auto grid max-w-2xl justify-items-center gap-2 text-center">
-          <div className="grid h-12 w-12 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-            <Bot className="h-6 w-6" />
+    <div className="new-session-screen">
+      <div className="new-session-layout">
+        <section className="new-session-primary" aria-labelledby="new-session-title">
+          <div className="new-session-header">
+            <div className="new-session-mark" aria-hidden="true">
+              <OttoBotMark className="h-10 w-16 text-foreground" />
+            </div>
+            <div className="min-w-0">
+              <h1 id="new-session-title" className="new-session-title">
+                OttoBot
+              </h1>
+            </div>
           </div>
-          <h1 className="text-3xl font-semibold leading-tight tracking-normal md:text-4xl">
-            New session
-          </h1>
-          <p className="text-sm text-muted-foreground md:text-base">
-            Describe the change.
-          </p>
-        </div>
 
-        <div className="mx-auto grid w-full gap-3">
           <PromptInput
-            className="rounded-[1.6rem] border border-border bg-background/35 p-2 shadow-[0_18px_44px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.06)]"
+            className="new-session-composer"
             onSubmit={(message) => {
               const nextPrompt = message.text.trim();
               if (nextPrompt) setPrompt(nextPrompt);
@@ -993,66 +991,76 @@ function NewSessionView({
             }}
           >
             <PromptInputBody>
-              <div className="flex min-w-0 items-start gap-2">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground">
-                  <Plus className="h-5 w-5" />
+              <div className="new-session-prompt-row">
+                <div className="new-session-prompt-icon" aria-hidden="true">
+                  <Plus className="h-4 w-4" />
                 </div>
                 <PromptInputTextarea
                   id="new-session-prompt"
                   value={prompt}
                   disabled={busy}
                   onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setPrompt(event.target.value)}
-                  placeholder="Describe a task..."
-                  className="min-h-12 flex-1 border-0 bg-transparent px-0 py-2 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 disabled:bg-transparent md:text-lg"
+                  placeholder="What should OttoBot work on?"
+                  className="new-session-textarea"
                 />
               </div>
             </PromptInputBody>
-            <PromptInputFooter className="mt-1 justify-end px-1 pb-1">
+            <PromptInputFooter className="new-session-composer-footer justify-end">
               <PromptInputSubmit
                 status={busy ? "submitted" : "ready"}
                 disabled={busy || !prompt.trim()}
-                className="h-11 w-11 rounded-full"
+                className="new-session-submit"
               >
                 {busy ? <Loader2 className="animate-spin" /> : <Send />}
               </PromptInputSubmit>
             </PromptInputFooter>
           </PromptInput>
 
-          <Suggestions className="justify-center">
+          <Suggestions className="new-session-suggestions">
             {GET_STARTED_PROMPTS.map((suggestion) => (
               <Suggestion
                 key={suggestion}
                 suggestion={suggestion}
                 disabled={busy}
-                className="rounded-full bg-background/25 px-3 text-muted-foreground hover:text-foreground"
+                className="new-session-suggestion"
                 onClick={setPrompt}
               />
             ))}
           </Suggestions>
-        </div>
+        </section>
 
-        {showWarmup ? (
-          <div className="mx-auto w-full max-w-4xl">
-            <WarmupProgress flow={createFlow} />
+        <aside className="new-session-runtime" aria-label="Runtime status">
+          <div className="new-session-runtime-copy">
+            <p className="new-session-runtime-label">Runtime</p>
+            <p className="new-session-runtime-caption">Local workspace</p>
           </div>
-        ) : null}
 
-        <div className="mx-auto grid w-full max-w-4xl gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {runtimeItems.map(({ label, value, icon: Icon, tone }) => (
-            <div
-              key={label}
-              className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-border bg-background/20 px-3 py-2"
-            >
-              <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className="truncate">{label}</span>
+          <div className="new-session-runtime-list">
+            {runtimeItems.map(({ label, value, icon: Icon, tone }) => (
+              <div key={label} className="new-session-runtime-row">
+                <span className="new-session-runtime-icon" data-tone={tone}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="new-session-runtime-name">{label}</span>
+                <span className="new-session-runtime-value">
+                  {formatStatusText(value)}
+                </span>
               </div>
-              <span className="shrink-0 text-sm font-medium capitalize text-foreground">
-                {formatStatusText(value)}
-              </span>
+            ))}
+          </div>
+
+          <div className="new-session-runtime-status">
+            <StatusPill tone={toneForService(runtime?.api)}>
+              {formatStatusText(runtime?.api.state ?? health?.status ?? "offline")}
+            </StatusPill>
+          </div>
+
+          {showWarmup ? (
+            <div className="new-session-warmup">
+              <WarmupProgress flow={createFlow} />
             </div>
-          ))}
-        </div>
+          ) : null}
+        </aside>
       </div>
     </div>
   );
@@ -1190,7 +1198,6 @@ function SettingsView({
   const saveBusy = busyAction === "save-runtime-settings";
   const saveProviderBusy = busyAction === "save-provider-config";
   const imageBuildBusy = busyAction === "start-agentImage";
-  const externalApiRunning = runtime?.api.state === "running" && !runtime.api.managed;
   const serviceCards = [runtime?.api, runtime?.docker, runtime?.agentImage].filter(Boolean) as ManagedServiceStatus[];
   const apiProviderMismatch =
     Boolean(health?.agent) &&
@@ -1325,17 +1332,10 @@ function SettingsView({
                 </div>
               ) : null}
 
-              {externalApiRunning ? (
+              {runtime?.api.state === "running" && providerDirty ? (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
                   <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>External API detected. Provider state may differ.</span>
-                </div>
-              ) : null}
-
-              {runtime?.api.state === "running" && !externalApiRunning && providerDirty ? (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
-                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Restart API for new sessions to use this provider.</span>
+                  <span>Saving restarts the app API for new sessions.</span>
                 </div>
               ) : null}
 
@@ -1399,13 +1399,6 @@ function SettingsView({
                 </div>
               </div>
 
-              {externalApiRunning ? (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
-                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>External API detected. Image state may differ.</span>
-                </div>
-              ) : null}
-
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Button variant="outline" disabled={!isTauri || imageBuildBusy} onClick={() => void runServiceAction("agentImage", "start")}>
                   {imageBuildBusy ? <Loader2 className="animate-spin" /> : <Boxes />}
@@ -1438,18 +1431,6 @@ function SettingsView({
                     <StatusPill tone={toneForService(service)}>{service.state}</StatusPill>
                   </div>
                   <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{service.detail}</p>
-                  {service.key === "api" ? (
-                    <div className="mt-3 flex gap-2">
-                      <Button size="xs" variant="outline" disabled={!isTauri || busyAction === "start-api"} onClick={() => void runServiceAction("api", "start")}>
-                        <Play />
-                        Start
-                      </Button>
-                      <Button size="xs" variant="ghost" disabled={!isTauri || busyAction === "stop-api"} onClick={() => void runServiceAction("api", "stop")}>
-                        <Square />
-                        Stop
-                      </Button>
-                    </div>
-                  ) : null}
                 </div>
               ))}
             </div>

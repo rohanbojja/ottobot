@@ -3,8 +3,8 @@ const env = process.env;
 export type LlmProvider = "openai" | "anthropic" | "google" | "codex-cli";
 
 const DEFAULT_CORS_ORIGINS = [
-  "http://localhost:1420",
-  "http://127.0.0.1:1420",
+  "http://localhost:1430",
+  "http://127.0.0.1:1430",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "tauri://localhost",

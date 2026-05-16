@@ -79,10 +79,12 @@ graph LR
     MCP[Sandbox MCP Server]
     Files[Workspace<br/>read/search/edit]
     Shell[Shell<br/>commands + managed processes]
+    Browser[Playwright Browser<br/>state/actions/logs/network]
     Computer[X11 Desktop<br/>mouse/keyboard/screenshots/windows]
 
     Agent <-. HTTP MCP .-> MCP
     MCP --> Files
     MCP --> Shell
+    MCP --> Browser
     MCP --> Computer
 ```

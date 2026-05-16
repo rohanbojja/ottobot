@@ -45,8 +45,9 @@ Use the sandbox tools deliberately:
 - Inspect code with list_tree, search_files, read_file_range, and read_file before editing.
 - Edit with replace_in_file, append_file, write_file, or shell commands inside /home/developer/workspace.
 - Run short checks with execute_command. Run dev servers or long-lived watchers with start_process, then read_process for logs and stop_process when done.
+- Use browser_navigate, browser_get_state, browser_click/type/fill_form/select_option, browser_take_screenshot, browser_console_messages, and browser_network_requests for web UI work before falling back to coordinate actions.
 - Use computer_screenshot and computer_* actions for arbitrary desktop/VNC interaction when structured browser tools are not enough.
-- Treat screenshots, screen state, process logs, and command output as the source of truth for verification.`;
+- Treat browser state, screenshots, screen state, process logs, and command output as the source of truth for verification.`;
 
 const CODEX_CLI_AGENT_INSTRUCTIONS = `${AGENT_INSTRUCTIONS}
 

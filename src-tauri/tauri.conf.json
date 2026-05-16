@@ -5,7 +5,7 @@
   "identifier": "com.rohanbojja.ottobot",
   "build": {
     "beforeDevCommand": "cd frontend && bun run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:1430",
     "beforeBuildCommand": "cd frontend && bun run build",
     "frontendDist": "../frontend/dist"
   },

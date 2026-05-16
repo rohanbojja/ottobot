@@ -18,8 +18,10 @@ RUN apt-get update && apt-get install -y \
     xdotool imagemagick scrot \
     # Development tools
     build-essential python3 python3-pip \
-    # Node.js for development environment
-    nodejs npm \
+    # Playwright Chromium runtime dependencies
+    fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libcups2 \
+    libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libxcomposite1 \
+    libxdamage1 libxkbcommon0 libxrandr2 \
     # Networking and utilities
     net-tools procps htop nano vim \
     && rm -rf /var/lib/apt/lists/*
@@ -45,6 +47,9 @@ WORKDIR /home/developer
 # Setup Bun for developer user
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/home/developer/.bun/bin:$PATH"
+USER root
+RUN ln -sf /home/developer/.bun/bin/bun /usr/local/bin/node
+USER developer
 
 # Create directories
 RUN mkdir -p ~/.vnc workspace .config
@@ -56,6 +61,7 @@ COPY --chown=developer:developer package.json tsconfig.json bun.lock /home/devel
 
 # Install dependencies
 RUN cd /home/developer && bun install
+RUN cd /home/developer && bun ./node_modules/playwright/cli.js install chromium
 
 # Copy startup script
 COPY --chown=developer:developer docker/scripts/start-session.sh /home/developer/start-session.sh
